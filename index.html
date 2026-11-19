@@ -214,6 +214,18 @@ body::before{
   border-radius:16px 16px 5px 16px}
 .msg .who{font-size:10px;letter-spacing:.22em;color:var(--faint);margin-bottom:7px;text-transform:uppercase}
 .msg.user .who{color:rgba(232,192,106,.6)}
+.msg .who{display:none}
+.msg-actions{
+  display:flex;gap:6px;margin-top:8px;opacity:0;transition:.2s;
+}
+.msg:hover .msg-actions{opacity:1}
+.act{
+  border:none;background:var(--panel);color:var(--faint);cursor:pointer;
+  font-size:11px;padding:4px 10px;border-radius:8px;transition:.15s;
+  display:flex;align-items:center;gap:5px;font-family:var(--sans);
+}
+.act:hover{color:var(--accent2);background:var(--accent-dim)}
+.act svg{width:12px;height:12px}
 .content{font-size:14.5px;line-height:1.95;color:var(--txt);word-break:break-word}
 .msg.user .content{color:#cfccc4}
 .content p{margin-bottom:.7em}
@@ -260,23 +272,25 @@ body::before{
   padding:16px 18px 8px;max-height:180px;
 }
 .composer textarea::placeholder{color:var(--faint)}
-.composer-bar{display:flex;align-items:center;padding:8px 10px 10px 12px;gap:8px}
-.icon-btn{
-  width:34px;height:34px;border-radius:10px;border:none;background:none;color:var(--dim);
-  cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s;
+.composer-bar{display:flex;align-items:center;padding:8px 12px 12px 12px;gap:10px}
+.round-btn{
+  width:38px;height:38px;border-radius:50%;border:1px solid var(--line2);background:var(--panel);
+  color:var(--dim);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.2s;
 }
-.icon-btn:hover{background:var(--panel);color:var(--txt)}
-.icon-btn svg{width:17px;height:17px}
-.composer-note{font-size:11px;color:var(--faint);margin-left:4px}
+.round-btn:hover{color:var(--accent2);border-color:var(--accent);background:var(--accent-dim);transform:rotate(90deg)}
+.round-btn svg{width:18px;height:18px}
+.composer-note{font-size:11px;color:var(--faint);margin-left:2px}
 .btn-send{
-  margin-left:auto;padding:9px 22px;border-radius:11px;border:none;cursor:pointer;
-  background:linear-gradient(135deg,var(--accent),#b9862e);color:#141210;
-  font-size:13px;font-weight:600;font-family:var(--sans);letter-spacing:.06em;transition:.2s;
-  display:flex;align-items:center;gap:7px;
+  margin-left:auto;width:40px;height:40px;border-radius:50%;border:none;cursor:pointer;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));background-size:150% 150%;
+  animation:sheen 5s ease infinite;color:#141210;transition:.2s;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 3px 14px var(--accent-dim);
 }
-.btn-send:hover{filter:brightness(1.1)}
+.btn-send svg{width:18px;height:18px}
+.btn-send:hover{filter:brightness(1.12);transform:translateY(-1px)}
 .btn-send:disabled{opacity:.45;cursor:not-allowed}
-.btn-send.stop{background:#3a2b28;color:#e5735f}
+.btn-send.stop{background:#3a2b28;color:#e5735f;animation:none}
 .status{max-width:780px;margin:10px auto 0;padding:0 8px;font-size:12px;color:var(--faint);min-height:16px}
 .status.err{color:#e5735f}
 
@@ -381,12 +395,14 @@ body::before{
       <div class="composer">
         <textarea id="input" rows="1" placeholder="输入你的问题… （Enter 发送 / Shift+Enter 换行）"></textarea>
         <div class="composer-bar">
-          <button class="icon-btn" title="上传文件" onclick="pickFile()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+          <button class="round-btn" title="上传文件" onclick="pickFile()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
           </button>
           <input type="file" id="fileInput" multiple hidden>
-          <span class="composer-note">支持文档 / 表格 / PDF / 代码</span>
-          <button class="btn-send" id="sendBtn" onclick="onSend()">发送</button>
+          <span class="composer-note">文档 / 表格 / PDF / 代码 · 拖入也行</span>
+          <button class="btn-send" id="sendBtn" onclick="onSend()" title="发送">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          </button>
         </div>
       </div>
       <div class="status" id="status"></div>
@@ -611,17 +627,41 @@ function delChat(id){
 function quick(t){ $("input").value=t; $("input").focus(); }
 
 /* ================= 消息渲染 ================= */
+let msgCount = 0;
 function appendMsg(role, text, animate=true){
   $("welcome") && ($("welcome").style.display="none");
+  const idx = msgCount++;
   const div = document.createElement("div");
   div.className = "msg "+(role==="user"?"user":"ai");
+  div.dataset.idx = idx;
   div.innerHTML = `
-    <div class="avatar">${role==="user"?"你":"A"}</div>
-    <div class="bubble"><div class="who">${role==="user"?"You":"Aria"}</div>
-    <div class="content">${mdRender(text)}</div></div>`;
+    <div class="avatar">${role==="user"?"你":"小"}</div>
+    <div class="bubble">
+    <div class="content">${mdRender(text)}</div>
+    <div class="msg-actions">
+      <button class="act" onclick="copyMsg(${idx})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>复制</button>
+      <button class="act" onclick="branchMsg(${idx})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M6 9v3a3 3 0 003 3h6"/></svg>分支对话</button>
+    </div></div>`;
   $("chatInner").appendChild(div);
   if(animate) scrollBottom();
   return div.querySelector(".content");
+}
+/* idx -> 在 history 中的消息序号（每条 msg 渲染即一条 history 消息） */
+function copyMsg(idx){
+  const m = history[idx];
+  const t = typeof m.content==="string" ? m.content : m.content[0]?.text || "";
+  navigator.clipboard.writeText(t).then(()=>setStatus("已复制到剪贴板"));
+}
+function branchMsg(idx){
+  const cut = history.slice(0, idx+1);
+  const parentTitle = curChat()?.title || "分支对话";
+  curId = uid();
+  chats.unshift({id:curId, title:"↳ " + parentTitle, messages:JSON.parse(JSON.stringify(cut))});
+  history = JSON.parse(JSON.stringify(cut));
+  save(); renderSessions();
+  $("chatInner").innerHTML = WELCOME.replace('id="welcome"','id="welcome" style="display:none"');
+  history.forEach(m=>appendMsg(m.role, typeof m.content==="string"?m.content:(m.content[0]?.text||""), false));
+  setStatus("已从这条消息开启新分支，后续回复不会影响原对话");
 }
 function scrollBottom(){ const c=$("chat"); c.scrollTop = c.scrollHeight; }
 function setStatus(t, err=false){ const s=$("status"); s.textContent=t||""; s.className="status"+(err?" err":""); }
@@ -682,7 +722,9 @@ function onSend(){
 }
 async function sendStream(){
   streaming = true; abortCtl = new AbortController();
-  const btn = $("sendBtn"); btn.textContent="停止"; btn.classList.add("stop");
+  const btn = $("sendBtn");
+  btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+  btn.classList.add("stop");
   setStatus("思考中…");
   const el = appendMsg("assistant","");
   el.classList.add("cursor");
@@ -732,7 +774,8 @@ async function sendStream(){
   }finally{
     streaming=false; abortCtl=null;
     el.closest(".msg").querySelector(".avatar").classList.remove("ai-pulse");
-    btn.textContent="发送"; btn.classList.remove("stop");
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+    btn.classList.remove("stop");
   }
 }
 
