@@ -452,7 +452,8 @@ body::before{
 <script>
 /* ================= 状态 ================= */
 const PRESETS = [
-  {name:"🆓 GLM-4-Flash（免费）", base:"https://open.bigmodel.cn/api/paas/v4", model:"glm-4-flash", note:"智谱注册就送，flash 模型完全免费"},
+  {name:"🆓 GLM-Flash（免费·推荐）", base:"https://open.bigmodel.cn/api/paas/v4", model:"glm-4-flash", note:"智谱开放平台 Key，flash 模型免费。不回复就换模型名 glm-5.3-flash"},
+  {name:"🆓 GLM-5.3-Flash（新一代免费）", base:"https://open.bigmodel.cn/api/paas/v4", model:"glm-5.3-flash", note:"智谱新一代免费模型"},
   {name:"🆓 OpenRouter 免费（需注册Key）", base:"https://openrouter.ai/api/v1", model:"deepseek/deepseek-chat-v3-0324:free", note:"openrouter.ai 注册即有免费额度"},
   {name:"🆓 Ollama 本地（完全免费无Key）", base:"http://127.0.0.1:11434/v1", model:"qwen3:8b", note:"电脑装 Ollama 后拉取模型，Key 随便填"},
   {name:"DeepSeek", base:"https://api.deepseek.com/v1", model:"deepseek-chat"},
@@ -563,7 +564,12 @@ async function fetchModels(){
     const r = await fetch("/api/models",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({baseUrl:base,apiKey:key})});
     const d = await r.json();
-    if(d.error){ setStatus(d.error, true); return; }
+    if(d.error){
+      if(String(d.error).includes("404"))
+        setStatus("该平台不提供模型列表接口（如智谱），直接手动输入模型名即可", true);
+      else setStatus(d.error, true);
+      return;
+    }
     $("modelList").innerHTML = d.models.map(m=>`<option value="${esc(m)}">`).join("");
     if(d.models.length && !$("fModel").value) $("fModel").value = d.models[0];
     setStatus(`获取到 ${d.models.length} 个模型`);
