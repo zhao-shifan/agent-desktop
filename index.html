@@ -572,24 +572,27 @@ function refreshCfg(){
   $("cfgDot").classList.toggle("ok", !!ok);
   $("cfgText").textContent = ok ? `已接入 · ${cfg.model}` : "设置 API 接入";
 }
-async function fetchModels(){
+async function fetchModels(silent){
   const base=$("fBase").value.trim().replace(/\/+$/,""), key=$("fKey").value.trim();
-  if(!base||!key){ setStatus("请先填写 API 地址和 Key", true); return; }
-  setStatus("正在获取模型列表…");
+  if(!base||!key) return;
+  if(!silent) setStatus("正在获取模型列表…");
   try{
     const r = await fetch("/api/models",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({baseUrl:base,apiKey:key})});
     const d = await r.json();
     if(d.error){
-      if(String(d.error).includes("404"))
-        setStatus("该平台不提供模型列表接口（如智谱），直接手动输入模型名即可", true);
-      else setStatus(d.error, true);
+      if(!silent){
+        if(String(d.error).includes("404"))
+          setStatus("该平台不提供模型列表接口（如智谱），直接手动输入模型名即可", true);
+        else setStatus(d.error, true);
+      }
       return;
     }
     $("modelList").innerHTML = d.models.map(m=>`<option value="${esc(m)}">`).join("");
     if(d.models.length && !$("fModel").value) $("fModel").value = d.models[0];
-    setStatus(`获取到 ${d.models.length} 个模型`);
-  }catch(e){ setStatus("获取失败："+e.message, true); }
+    if(!silent) setStatus(`获取到 ${d.models.length} 个模型`);
+    else $("fModel").placeholder = `模型（如 ${d.models[0]}）`;
+  }catch(e){ if(!silent) setStatus("获取失败："+e.message, true); }
 }
 
 /* ================= 会话 ================= */
@@ -788,6 +791,17 @@ input.addEventListener("input", ()=>{
   input.style.height="auto";
   input.style.height = Math.min(input.scrollHeight,180)+"px";
 });
+
+/* Key/地址填完自动拉取模型列表（不支持的平台静默跳过） */
+let autoFetchTimer=null;
+function autoFetchModels(){
+  clearTimeout(autoFetchTimer);
+  autoFetchTimer=setTimeout(()=>{
+    if($("fBase").value.trim() && $("fKey").value.trim()) fetchModels(true);
+  }, 600);
+}
+$("fKey").addEventListener("input", autoFetchModels);
+$("fBase").addEventListener("change", autoFetchModels);
 
 /* ================= 启动 ================= */
 const savedTheme = localStorage.getItem("aria.theme");
