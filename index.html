@@ -883,7 +883,9 @@ async function sendStream(){
           if(data === "[DONE]") continue;
           try{
             const j = JSON.parse(data);
-            const delta = j.choices?.[0]?.delta?.content || "";
+            const d = j.choices?.[0]?.delta || {};
+            let delta = d.content || "";
+            if(!delta && d.reasoning_content) delta = d.reasoning_content; // 思考型模型（GLM-5.3等）
             if(delta){ full += delta; el.innerHTML = mdRender(full); scrollBottom(); setStatus(""); }
           }catch(e){}
         }
@@ -896,7 +898,13 @@ async function sendStream(){
   }catch(e){
     el.classList.remove("cursor");
     if(e.name==="AbortError"){ setStatus("已停止"); if(full) history.push({role:"assistant",content:full}); }
-    else { setStatus(e.message, true); el.innerHTML = `<p style="color:#e5735f">⚠ ${esc(e.message)}</p>`; }
+    else {
+      let hint = e.message;
+      if(STANDALONE && (e.name==="TypeError" || hint==="Failed to fetch"))
+        hint = "独立模式直连被浏览器跨域拦截。解决：① 通过电脑服务打开 http://127.0.0.1:8765；② 或换支持跨域的平台（DeepSeek/OpenRouter）；③ 或把该 HTML 放到手机上用（部分平台同样受限）";
+      setStatus(hint, true);
+      el.innerHTML = `<p style="color:#e5735f">⚠ ${esc(hint)}</p>`;
+    }
   }finally{
     streaming=false; abortCtl=null;
     el.closest(".msg").querySelector(".avatar").classList.remove("ai-pulse");
