@@ -20,7 +20,13 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - uses: android-actions/setup-android@v3
+      - name: 检查环境自带的 Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          ls "$ANDROID_HOME" || true
+          sdkmanager --version || true
+          java -version
 
       - name: 安装依赖
         working-directory: mobile
@@ -49,7 +55,6 @@ jobs:
 
       - name: 接受 SDK 许可
         run: yes | sdkmanager --licenses > /dev/null 2>&1 || true
-
       - name: 打包 debug APK
         working-directory: mobile/android
         run: |
