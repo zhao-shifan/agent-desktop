@@ -11,6 +11,7 @@
 - 🖼️ **图片识别** — 传入图片自动切换视觉模型（如智谱 `glm-4v-flash`，免费）
 - 📄 **一键导出 Word** — AI 回复按 **Pandoc + GFM 标准** 转成排版完整的 .docx（表格/代码/列表全支持）
 - 🧩 **技能系统** — 内置 8 大技能（论文/报告/PPT/文献精读/翻译/代码/数据/文案），支持导入 Claude Skills 规范的 .zip/.md 技能包、自定义技能
+- 🛠 **AI 工具** — 联网搜索 / 抓网页 / 读本地文件 / 列目录 / 执行命令，模型自己决定何时调用（function calling）
 - 🎨 **10 套主题** — 每套配色带专属动态背景（流星/气泡/极光/萤火虫/樱花…），深浅色都有
 - 📱 **全平台通用** — 电脑服务模式 + 手机独立模式（同一套代码自动识别）
 - 🔌 **11 家服务商预设** — 每家带「三步获取 Key」图文引导和官网直达链接
@@ -56,6 +57,27 @@ python3 server.py
 - 打包走 `.github/workflows/build-apk.yml`，云端出 `app-debug.apk` 产物
 - 也可以本地打：`cd mobile && npm install && npm run build:www && npx cap add android && cd android && ./gradlew assembleDebug`
 
+## 🛠 AI 工具（联网 / 读文件 / 跑命令）
+
+模型本身不会上网。开关打开后，**模型负责决定用哪个工具，本机负责真正执行**，结果再回灌给模型组织答案（这就是豆包/DeepSeek 那套 function calling 的原理）。
+
+| 工具 | 能干什么 | 依赖 |
+|---|---|---|
+| `web_search` | 联网搜索，返回标题/链接/摘要 | 免 Key（DuckDuckGo，失败自动回退 360）；可在设置里填 Tavily Key 换更干净的结果 |
+| `fetch_url` | 抓取网页正文纯文本，用来精读搜索结果 | 无需 Key |
+| `read_file` | 读本机文本文件（代码/配置/文档） | 受「工作目录」限制 |
+| `list_dir` | 列目录，找文件先用它 | 同上 |
+| `run_command` | 执行 PowerShell 命令并返回输出 | **默认关闭**，需在设置里显式勾选 |
+
+**怎么用**：聊天框下方的「🛠 工具」按钮 → 变「工具开」即生效；设置里可配工作目录、搜索 Key、命令权限。
+
+**注意事项**
+
+- 只有**服务模式**（双击 exe / `启动智能体.bat` 打开）才有工具；手机独立版直连 API，不支持
+- 模型要支持 function calling：`glm-4-flash`、`glm-5.3-flash`、`deepseek-chat` 等都可以
+- 「允许执行命令」= 让 AI 在你电脑上跑命令，**只有完全信任时才开**；读文件也被限制在允许目录内
+- 工具调用最多 4 轮，防止无限循环
+
 ## 🆓 完全免费方案
 
 | 模型 | 说明 |
@@ -78,6 +100,7 @@ python3 server.py
 ```
 agent-desktop/
 ├── server.py        # 本地服务（零第三方依赖，可选装 pypdf/pypandoc 增强功能）
+├── tools_layer.py   # AI 工具层：搜索 / 抓网页 / 读文件 / 执行命令
 ├── index.html       # 统一前端（电脑/手机同一套代码）
 ├── qrcode.js        # 二维码库（MIT）
 ├── official_skills.js  # 官方技能库
@@ -87,6 +110,7 @@ agent-desktop/
 ├── icon.ico         # Windows 应用图标（多尺寸）
 ├── make_icon.py     # 图标生成器（改一次出全套）
 ├── mobile/          # Capacitor 壳工程 + 安卓图标（打 APK 用）
+├── .github/workflows/  # 云端打 APK / 发布 Pages（需要 workflow 权限才能推送）
 └── 启动智能体.bat    # Windows 一键启动
 ```
 

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -452,6 +452,18 @@ body::before{
 .round-btn:hover{color:var(--accent2);border-color:var(--accent);background:var(--accent-dim);transform:rotate(90deg)}
 .round-btn svg{width:18px;height:18px}
 .composer-note{font-size:11px;color:var(--faint);margin-left:2px}
+.tool-chip{
+  height:30px;padding:0 11px;border-radius:9px;cursor:pointer;white-space:nowrap;
+  border:1px solid var(--line2);background:var(--bg2);color:var(--dim);
+  font-size:12px;font-family:var(--sans);transition:.15s;flex:0 0 auto;
+}
+.tool-chip:hover{border-color:var(--accent);color:var(--txt)}
+.tool-chip.on{border-color:rgba(226,184,87,.55);background:var(--accent-dim);color:var(--accent2)}
+.tool-line{
+  font-size:11.5px;color:var(--faint);margin:0 0 8px;padding:6px 10px;
+  border-left:2px solid rgba(226,184,87,.45);background:rgba(226,184,87,.05);border-radius:0 8px 8px 0;
+  line-height:1.6;word-break:break-all;
+}
 .model-select{
   appearance:none;-webkit-appearance:none;border:1px solid var(--line2);background:var(--bg2);
   color:var(--txt);border-radius:999px;padding:9px 30px 9px 15px;font-size:13px;font-family:var(--sans);
@@ -602,6 +614,47 @@ body::before{
   .welcome{padding-top:3vh}
   .welcome h2{font-size:24px}
 }
+
+/* ===== 手机端适配（390 / 360 宽度为准）===== */
+@media(max-width:760px){
+  html,body{overflow-x:hidden;max-width:100vw}
+  .chat{padding:60px 0 6px}
+  .chat-inner{padding:0 14px}
+  .welcome{padding-top:2vh}
+  .welcome .mark{width:54px;height:54px;font-size:22px;border-radius:16px}
+  .welcome h2{font-size:22px}
+  .welcome p{font-size:13px;line-height:1.8}
+  .msg{gap:10px;margin-bottom:20px}
+  .avatar{width:30px;height:30px;font-size:13px}
+  .bubble{font-size:14px}
+
+  /* 输入区：说明文字在窄屏会挤成一列，直接不显示；按钮允许换行 */
+  .composer-wrap{padding:0 10px 12px}
+  .composer{border-radius:16px}
+  .composer textarea{padding:12px 12px 6px;font-size:14px}
+  .composer-bar{flex-wrap:wrap;row-gap:8px;padding:6px 8px 8px;gap:8px}
+  .composer-note{display:none}
+  .bar-right{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto;justify-content:flex-end;flex:1 1 auto}
+  .model-select{max-width:110px;font-size:11.5px;padding:6px 22px 6px 9px;height:30px}
+  .skill-select{max-width:100px}
+  .round-btn{width:32px;height:32px}
+  .btn-send{width:34px;height:34px;flex:0 0 auto}
+
+  /* 弹窗：宽度锁死到视口，内部留白收窄，避免右侧被裁 */
+  .overlay{padding:10px}
+  .modal{width:100%!important;max-width:100%!important;max-height:92vh;border-radius:16px;padding:0 16px 16px}
+  .modal-fixed{margin:0 -16px;padding:18px 16px 0}
+  .modal h3{font-size:17px}
+  .modal .sub{font-size:12px;margin-bottom:16px}
+  .modal img,.modal table,.modal pre{max-width:100%}
+  .modal-actions{flex-wrap:wrap}
+  .modal-actions > *{flex:1 1 140px}
+
+  /* 网格类内容在手机上降列 */
+  .theme-grid{grid-template-columns:repeat(2,1fr)!important}
+  #wallGrid{grid-template-columns:repeat(2,1fr)!important}
+  .skill-grid{grid-template-columns:repeat(2,1fr)!important}
+}
 </style>
 </head>
 <body>
@@ -650,7 +703,7 @@ body::before{
     <div class="chat" id="chat">
       <div class="chat-inner" id="chatInner">
         <div class="welcome" id="welcome">
-          <div class="mark">ARIA</div>
+          <div class="mark">小凡</div>
           <h2>有什么可以帮你？</h2>
           <p>接入任意 OpenAI 兼容模型，即可开始对话。<br>支持拖入或上传 TXT / Markdown / Word / Excel / PPT / PDF / 代码文件进行问答。</p>
           <div class="hints">
@@ -674,6 +727,7 @@ body::before{
           <input type="file" id="fileInput" multiple hidden>
           <span class="composer-note" id="composerNote">支持文档 / 表格 / PDF / 代码</span>
           <div class="bar-right">
+            <button id="toolBtn" class="tool-chip" onclick="toggleTools()" title="工具：联网搜索 / 读本地文件 / 执行命令">🛠 工具</button>
             <select id="skillSelect" class="model-select skill-select" onchange="setQuickSkill(this.value)" title="选择技能"></select>
             <select id="quickModel" onchange="setQuickModel(this.value)" class="model-select" title="切换模型"></select>
             <button class="btn-send" id="sendBtn" onclick="onSend()" title="发送">
@@ -742,6 +796,16 @@ body::before{
           <option value="high">高</option>
         </select>
       </div>
+    </div>
+    <div class="field" style="margin-top:16px;border-top:1px solid var(--line2);padding-top:14px">
+      <label>🛠️ 工具权限</label>
+      <div class="tip" style="margin-bottom:8px">开启后 AI 可以联网搜索、抓网页、读本地文件；命令执行默认关闭。聊天框的「🛠 工具」按钮可随时开关。</div>
+      <input id="fWorkDir" placeholder="允许读写的目录（多个用 ; 分隔；留空=程序目录+用户目录）">
+      <input id="fSearchKey" placeholder="搜索 API Key（可选；留空用内置免 Key 搜索）" style="margin-top:8px">
+      <label style="display:flex;align-items:flex-start;gap:8px;margin-top:10px;font-size:12.5px;color:var(--dim);line-height:1.6">
+        <input type="checkbox" id="fAllowCmd" style="width:16px;height:16px;margin-top:1px">
+        <span>允许执行命令（会真实在这台电脑上运行 PowerShell 命令，仅在完全信任时开启）</span>
+      </label>
     </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="fetchModels()">获取模型列表</button>
@@ -978,6 +1042,17 @@ const PRESETS = [
       url:"https://platform.kimi.com/",
       steps:["登录 Kimi 开放平台并开通「Kimi For Coding」订阅","在订阅页复制专用 API Key","粘贴保存，地址自动填成 api.kimi.com/coding/v1"]}
    ]},
+  {name:"MiniMax（含 M Plan 订阅）", base:"https://api.minimaxi.com/v1", model:"MiniMax-M1",
+   versions:[
+     {name:"按量付费", base:"https://api.minimaxi.com/v1", model:"MiniMax-M1",
+      note:"M 系列与 M1 推理模型",
+      url:"https://platform.minimaxi.com/user-center/basic-information/interface-key",
+      steps:["登录 MiniMax 开放平台","「账户管理」→「接口密钥」创建","复制粘贴保存"]},
+     {name:"M Plan（订阅）", base:"https://api.minimax.io/v1", model:"MiniMax-M3.1-Flash",
+      note:"MiniMax 订阅版 M Plan 通道（OpenAI 兼容），与按量付费 Key 独立",
+      url:"https://platform.minimax.io/console/plan",
+      steps:["登录 MiniMax 控制台开通 M Plan 订阅","在 plan 页面复制订阅 API Key（sk-cp- 开头）","粘贴保存，地址自动填成 api.minimax.io/v1"]}
+   ]},
   {name:"百度千帆", base:"https://qianfan.baidubce.com/v2", model:"ernie-4.5-turbo-128k",
    url:"https://console.bce.baidu.com/iam/#/iam/apikey/list",
    steps:["登录百度智能云千帆控制台","「应用接入」开通模型后，在 IAM 创建 API Key（v2 接口用 Bearer 认证）","复制粘贴保存"],
@@ -990,19 +1065,41 @@ const PRESETS = [
    url:"https://console.cloud.tencent.com/hunyuan/api-key",
    steps:["登录腾讯云混元大模型控制台","「API Key 管理」→ 新建密钥","复制粘贴保存"],
    note:"混元 TurboS 等，OpenAI 兼容接口"},
-  {name:"MiniMax（含 M Plan 订阅）", base:"https://api.minimaxi.com/v1", model:"MiniMax-M1",
-   versions:[
-     {name:"按量付费", base:"https://api.minimaxi.com/v1", model:"MiniMax-M1",
-      note:"M 系列与 M1 推理模型",
-      url:"https://platform.minimaxi.com/user-center/basic-information/interface-key",
-      steps:["登录 MiniMax 开放平台","「账户管理」→「接口密钥」创建","复制粘贴保存"]},
-     {name:"M Plan（订阅）", base:"https://api.minimax.io/v1", model:"MiniMax-M3.1-Flash",
-      note:"MiniMax 订阅版 M Plan 通道（OpenAI 兼容），与按量付费 Key 独立",
-      url:"https://platform.minimax.io/console/plan",
-      steps:["登录 MiniMax 控制台开通 M Plan 订阅","在 plan 页面复制订阅 API Key（sk-cp- 开头）","粘贴保存，地址自动填成 api.minimax.io/v1"]}
-   ]},
 ];
 let cfg = JSON.parse(localStorage.getItem("aria.cfg")||"null");
+/* ===== 工具开关（联网搜索 / 读文件 / 命令）===== */
+let toolsOn = localStorage.getItem("aria.tools") === "1";
+function syncToolBtn(){
+  const b = $("toolBtn"); if(!b) return;
+  b.classList.toggle("on", toolsOn);
+  b.textContent = toolsOn ? "🛠 工具开" : "🛠 工具";
+}
+function toggleTools(){
+  toolsOn = !toolsOn;
+  localStorage.setItem("aria.tools", toolsOn ? "1" : "0");
+  syncToolBtn();
+  setStatus(toolsOn ? "工具已开启：可联网搜索 / 读文件 / 抓网页" : "工具已关闭：仅用模型自身知识回答");
+}
+const TOOL_ICONS = {web_search:"🔍", fetch_url:"🌐", read_file:"📄", list_dir:"📁", run_command:"⌨️"};
+const TOOL_NAMES = {web_search:"联网搜索", fetch_url:"抓取网页", read_file:"读文件", list_dir:"列目录", run_command:"执行命令"};
+function toolLineHtml(log){
+  if(!log || !log.length) return "";
+  const parts = log.map(t=>{
+    let a = "";
+    try{ const o = JSON.parse(t.args || "{}"); a = o.query || o.url || o.path || o.command || ""; }
+    catch(e){ a = t.args || ""; }
+    a = String(a); if(a.length > 42) a = a.slice(0, 42) + "…";
+    return `${TOOL_ICONS[t.name]||"🛠"} ${TOOL_NAMES[t.name]||t.name}${t.status==="done"?" ✓":""}${a?"："+a:""}`;
+  });
+  return `<div class="tool-line">${esc(parts.join("　"))}</div>`;
+}
+/* 工具相关的设置项：改完即存（不用点保存）。注意要在 $ 定义之后再绑定，这里只定义不执行。 */
+function bindToolSettings(){
+  const wd = $("fWorkDir"), sk = $("fSearchKey"), ac = $("fAllowCmd");
+  if(wd) wd.addEventListener("change", ()=>{ cfg = cfg || {}; cfg.workDir = wd.value.trim(); localStorage.setItem("aria.cfg", JSON.stringify(cfg)); });
+  if(sk) sk.addEventListener("change", ()=>{ cfg = cfg || {}; cfg.searchKey = sk.value.trim(); localStorage.setItem("aria.cfg", JSON.stringify(cfg)); });
+  if(ac) ac.addEventListener("change", ()=>{ cfg = cfg || {}; cfg.allowCommand = ac.checked; localStorage.setItem("aria.cfg", JSON.stringify(cfg)); });
+}
 /* 一次性迁移：旧版本把「刚切到的模型」记在上一平台名下（记错平台），
    导致同一个模型在两个分组里重复出现。这里按模型归属清掉串台的记录。 */
 (function migrateModelBook(){
@@ -1328,6 +1425,9 @@ function openSettings(){
     $("fBase").value=cfg.baseUrl||""; $("fModel").value=cfg.model||"";
     $("fTemp").value=cfg.temperature??"0.7";
     $("fReason").value=cfg.reasoning||"auto";
+    if($("fWorkDir")) $("fWorkDir").value = cfg.workDir || "";
+    if($("fSearchKey")) $("fSearchKey").value = cfg.searchKey || "";
+    if($("fAllowCmd")) $("fAllowCmd").checked = !!cfg.allowCommand;
   }
   renderPresets();
   // 自动选中与当前配置匹配的服务商（含订阅版本：按地址匹配到对应版本）
@@ -2131,6 +2231,12 @@ async function sendStream(){
         const body = STANDALONE
           ? {model:cfg.model, messages:msgs, stream:true, temperature:parseFloat(cfg.temperature ?? 0.7), reasoning:cfg.reasoning||"auto"}
           : {...cfg, messages:msgs};
+        // 工具能力：服务模式下由 server.py 执行 function calling；独立模式（直连 API）不支持
+        if(!STANDALONE && toolsOn){
+          body.tools = true;
+          body.perm = {workDir: cfg.workDir || "", searchKey: cfg.searchKey || "",
+                       allowCommand: !!cfg.allowCommand};
+        }
         const r = await fetch(url,{method:"POST", headers, body:JSON.stringify(body), signal:abortCtl.signal});
         if(!r.ok){
           let msg = "请求失败 ("+r.status+")";
@@ -2140,6 +2246,7 @@ async function sendStream(){
         const reader = r.body.getReader();
         const dec = new TextDecoder();
         let buf = "", think = "";
+        const toolLog = [];
         while(true){
           const {done, value} = await reader.read();
           if(done) break;
@@ -2153,6 +2260,22 @@ async function sendStream(){
               if(data === "[DONE]") continue;
               try{
                 const j = JSON.parse(data);
+                if(j.tool){
+                  const t = j.tool;
+                  if(t.status === "running"){
+                    toolLog.push({name:t.name, args:t.args, status:"running"});
+                    setStatus((TOOL_ICONS[t.name]||"🛠") + " 正在" + (TOOL_NAMES[t.name]||t.name) + "…");
+                    el.innerHTML = toolLineHtml(toolLog) + mdRender(full);
+                    scrollBottom();
+                  }else if(t.status === "done"){
+                    const item = toolLog.find(x=>x.name===t.name && x.status==="running");
+                    if(item){ item.status = "done"; item.preview = t.preview || ""; }
+                    setStatus("工具已完成，继续整理答案…");
+                    el.innerHTML = toolLineHtml(toolLog) + mdRender(full);
+                    scrollBottom();
+                  }
+                  continue;
+                }
                 const d = j.choices?.[0]?.delta || {};
                 if(d.content){
                   full += d.content;
@@ -2167,8 +2290,9 @@ async function sendStream(){
             }
           }
         }
-        if(!full && think) el.innerHTML = `<p style="color:var(--faint);font-style:italic">💭（${esc(think.slice(0,300))}…）</p>`;
-        else el.innerHTML = mdRender(full || think);
+        const tl = toolLineHtml(toolLog);
+        if(!full && think) el.innerHTML = tl + `<p style="color:var(--faint);font-style:italic">💭（${esc(think.slice(0,300))}…）</p>`;
+        else el.innerHTML = tl + mdRender(full || think);
         renderMsgNav();   // 流式结束后刷新大纲预览文字
         break;   // 本轮成功
       }catch(e){
@@ -2568,6 +2692,7 @@ async function refreshWallCount(){
     const d = await r.json();
     if(d.count) WALL_COUNT = d.count;
     if(Array.isArray(d.ids) && d.ids.length){ WALL_IDS = d.ids; WALL_COUNT = d.ids.length; }
+    if(Array.isArray(d.cards) && d.cards.length) window.WALL_CARD_IDS = d.cards;
     const t = $("wallCountTxt"); if(t) t.textContent = WALL_COUNT;
   }catch(e){}
 }
@@ -2800,10 +2925,17 @@ $("wallUploadInput").addEventListener("change", async e=>{
 
   // 主题切换时重建特效（photoRain=true 时切换为照片漂浮模式）
   const photoImgs = [];
-  for(let i=1;i<=40;i++){
-    const im = new Image(); im.src = `/wallpapers/card${String(i).padStart(2,"0")}.jpg`; photoImgs.push(im);
+  let photosBuilt = false;
+  function ensurePhotos(){
+    if(photosBuilt) return;
+    photosBuilt = true;
+    const ids = (window.WALL_CARD_IDS && window.WALL_CARD_IDS.length)
+      ? window.WALL_CARD_IDS : Array.from({length: 40}, (_, k) => k + 1);
+    for(const i of ids){
+      const im = new Image(); im.src = `/wallpapers/card${String(i).padStart(2,"0")}.jpg`; photoImgs.push(im);
+    }
   }
-  const usablePhotos = () => photoImgs.filter(im=>im.complete && im.naturalWidth);
+  const usablePhotos = () => { ensurePhotos(); return photoImgs.filter(im=>im.complete && im.naturalWidth); };
   function startPhotoRain(){
     const imgs = usablePhotos();
     if(!imgs.length){ setTimeout(()=>{ if(photoRainOn && window.__applyBGEffect) window.__applyBGEffect(localStorage.getItem("aria.theme")||"", true); }, 500); return; }
@@ -2844,7 +2976,7 @@ function applyStandaloneUI(){
 if(STANDALONE) applyStandaloneUI();
 /* PWA：注册 Service Worker（只对 http/https 生效，file:// 打开时跳过） */
 if("serviceWorker" in navigator && location.protocol.startsWith("http")){
-  addEventListener("load", ()=>{ navigator.serviceWorker.register("./sw.js").catch(()=>{}); });
+  /* 手机独立版：本地 file:// 打开，不注册 Service Worker */ });
 }
 /* 开箱即用：无配置时默认接入免费模型（Key 来自本机私有配置，不会上传） */
 if(!cfg || !cfg.apiKey){
@@ -2854,7 +2986,7 @@ if(!cfg || !cfg.apiKey){
     localStorage.setItem("aria.cfg", JSON.stringify(cfg));
   }
 }
-refreshCfg(); applyBrand(); renderSessions(); renderSkills(); // 启动即渲染技能下拉，避免初次加载显示为空框
+refreshCfg(); applyBrand(); renderSessions(); renderSkills(); syncToolBtn(); bindToolSettings(); refreshWallCount(); // 启动即渲染技能下拉 / 拉一次壁纸编号
 applyCustomBg();
 addEventListener("resize", ()=>{ if(localStorage.getItem("aria.bgImage")) applyCustomBg(); });
 if(photoRainOn){ const b=$("photoRainBtn"); if(b) b.textContent="🎬 照片漂浮：开"; }

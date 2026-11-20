@@ -26,3 +26,6 @@ mobile/android/
 
 # 需要 workflow scope 才能推送到 GitHub，暂存本地
 .github/workflows/
+
+# 本地调试脚本/截图一律不入库
+_*

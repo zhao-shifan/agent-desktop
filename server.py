@@ -6,14 +6,20 @@ Aria 智能体 · 本地服务
 浏览器打开 http://127.0.0.1:8765
 """
 import base64
+import html
 import io
 import json
 import os
+import re
 import socket
+import subprocess
 import sys
+import urllib.parse
 import urllib.request
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import tools_layer
 
 # 兼容 PyInstaller 打包：资源文件在临时解包目录
 if getattr(sys, "frozen", False):
@@ -21,6 +27,9 @@ if getattr(sys, "frozen", False):
 else:
     ROOT = os.path.dirname(os.path.abspath(__file__))
 PORT = 8765
+
+# 工具层允许读写/执行的基础目录：打包后取 exe 所在目录，源码运行取项目目录
+tools_layer.APP_ROOT = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else ROOT
 
 # Windows 控制台默认 GBK，统一按 UTF-8 输出避免打印崩溃
 try:
@@ -111,6 +120,18 @@ def wallpaper_count():
     return len(wallpaper_ids())
 
 
+def wallpaper_card_ids():
+    """照片漂浮用的卡片图编号（cardNN.jpg，带缺号时只返回真实存在的）。"""
+    import glob
+    import re
+    ids = []
+    for f in glob.glob(os.path.join(wallpaper_dir(), "card*.jpg")):
+        m = re.match(r"card(\d+)\.jpg$", os.path.basename(f))
+        if m:
+            ids.append(int(m.group(1)))
+    return sorted(ids)
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -127,6 +148,15 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_js_empty(self):
+        """给可选脚本占位，避免前端控制台出现 404。"""
+        body = b"// optional local config (not provided)\n"
+        self.send_response(200)
+        self.send_header("Content-Type", "application/javascript; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -149,7 +179,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in static:
             path = os.path.join(ROOT, static[self.path])
             if not os.path.isfile(path):
-                self._send_json({"error": "not found"}, 404)
+                # config.local.js 是可选的本地私有配置，缺失时给空脚本，避免前端报 404
+                if self.path == "/config.local.js":
+                    self._send_js_empty()
+                else:
+                    self._send_json({"error": "not found"}, 404)
                 return
             ctype = TYPES.get(os.path.splitext(path)[1].lower(), "text/html; charset=utf-8")
             with open(path, "rb") as f:
@@ -193,7 +227,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"ok": True, "url": f"http://{lan_ip()}:{PORT}"})
         elif self.path == "/api/wallpapers":
             ids = wallpaper_ids()
-            self._send_json({"ok": True, "count": len(ids), "ids": ids})
+            self._send_json({"ok": True, "count": len(ids), "ids": ids,
+                             "cards": wallpaper_card_ids()})
         else:
             self._send_json({"error": "not found"}, 404)
 
@@ -514,23 +549,37 @@ class Handler(BaseHTTPRequestHandler):
         temperature = payload.get("temperature")
         messages = payload.get("messages") or []
 
-        upstream_body = {
-            "model": model,
-            "messages": messages,
-            "stream": bool(payload.get("stream", True)),
-        }
-        if temperature is not None:
-            upstream_body["temperature"] = float(temperature)
-        if payload.get("maxTokens"):
-            upstream_body["max_tokens"] = int(payload["maxTokens"])
+        tools_on = bool(payload.get("tools"))
+        perm = payload.get("perm") or {}
 
-        # 推理深度：智谱用 thinking，其他 OpenAI 兼容用 reasoning_effort
-        reasoning = payload.get("reasoning") or "auto"
-        if "bigmodel" in base:
-            if reasoning in ("off", "low", "medium", "high"):
-                upstream_body["thinking"] = {"type": "disabled" if reasoning == "off" else "enabled"}
-        elif reasoning not in ("auto", "off"):
-            upstream_body["reasoning_effort"] = reasoning
+        def build_body(msgs, stream_flag, with_tools):
+            body = {
+                "model": model,
+                "messages": msgs,
+                "stream": stream_flag,
+            }
+            if temperature is not None:
+                body["temperature"] = float(temperature)
+            if payload.get("maxTokens"):
+                body["max_tokens"] = int(payload["maxTokens"])
+            # 推理深度：智谱用 thinking，其他 OpenAI 兼容用 reasoning_effort
+            reasoning = payload.get("reasoning") or "auto"
+            if "bigmodel" in base:
+                if reasoning in ("off", "low", "medium", "high"):
+                    body["thinking"] = {"type": "disabled" if reasoning == "off" else "enabled"}
+            elif reasoning not in ("auto", "off"):
+                body["reasoning_effort"] = reasoning
+            if with_tools:
+                body["tools"] = tools_layer.TOOL_DEFS
+                body["tool_choice"] = "auto"
+            return body
+
+        # ---------- 带工具：服务端自己跑 function-calling 循环 ----------
+        if tools_on:
+            self._chat_with_tools(base, key, messages, build_body, perm)
+            return
+
+        upstream_body = build_body(messages, bool(payload.get("stream", True)), False)
 
         req = urllib.request.Request(
             base + "/chat/completions",
@@ -582,6 +631,88 @@ class Handler(BaseHTTPRequestHandler):
                 pass
             upstream.close()
 
+    # ---------- 工具调用循环 ----------
+    def _sse(self, obj):
+        """发一条 SSE 事件（手动 chunked）。"""
+        chunk = ("data: " + json.dumps(obj, ensure_ascii=False) + "\n\n").encode("utf-8")
+        self.wfile.write(f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n")
+        self.wfile.flush()
+
+    def _chat_with_tools(self, base, key, messages, build_body, perm):
+        """模型要工具 → 本地执行 → 结果回灌 → 最多 4 轮，最后把答案流式吐给前端。"""
+        self.close_connection = True
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+
+        def call_upstream(msgs):
+            req = urllib.request.Request(
+                base + "/chat/completions",
+                data=json.dumps(build_body(msgs, False, True)).encode("utf-8"),
+                headers={"Content-Type": "application/json",
+                         "Authorization": f"Bearer {key}"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+
+        try:
+            msgs = list(messages)
+            final_text = ""
+            for _round in range(tools_layer.MAX_ROUNDS):
+                try:
+                    data = call_upstream(msgs)
+                except urllib.error.HTTPError as e:
+                    detail = e.read().decode("utf-8", errors="replace")[:600]
+                    hint = ""
+                    if e.code in (400, 404, 422):
+                        hint = "\n\n（当前模型/平台可能不支持工具调用，换 glm-4-flash、deepseek-chat 等支持 function calling 的模型试试）"
+                    final_text = f"上游接口返回 {e.code}: {detail}{hint}"
+                    break
+                msg = ((data.get("choices") or [{}])[0]).get("message") or {}
+                tool_calls = msg.get("tool_calls") or []
+                if not tool_calls:
+                    final_text = msg.get("content") or ""
+                    reasoning = msg.get("reasoning_content") or ""
+                    if not final_text.strip() and reasoning:
+                        final_text = reasoning
+                    break
+                msgs.append({"role": "assistant",
+                             "content": msg.get("content") or "",
+                             "tool_calls": tool_calls})
+                for tc in tool_calls:
+                    fn = tc.get("function") or {}
+                    self._sse({"tool": {"id": tc.get("id"), "name": fn.get("name"),
+                                        "args": fn.get("arguments") or "", "status": "running"}})
+                    result = tools_layer.run_tool(tc, perm)
+                    msgs.append({"role": "tool", "tool_call_id": tc.get("id"), "content": result})
+                    self._sse({"tool": {"id": tc.get("id"), "name": fn.get("name"),
+                                        "status": "done", "preview": str(result)[:400]}})
+            else:
+                final_text = "（工具调用轮数达到上限，先给你目前掌握的信息）"
+
+            # 把最终答案切成小段，前端按流式渲染
+            for i in range(0, len(final_text), 24):
+                self._sse({"choices": [{"delta": {"content": final_text[i:i + 24]}}]})
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            try:
+                self._sse({"choices": [{"delta": {"content": "服务端处理出错，请查看终端日志。"}}]})
+            except Exception:
+                pass
+        finally:
+            try:
+                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.flush()
+            except Exception:
+                pass
+
 
 def lan_ip():
     """获取局域网 IP，取不到则回退本机地址。"""
@@ -595,13 +726,35 @@ def lan_ip():
         return "127.0.0.1"
 
 
+def open_app_window(url):
+    """优先用 Chrome/Edge 的「应用窗口」打开：无地址栏无标签页，像一个桌面程序。"""
+    import subprocess
+    candidates = [
+        os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+        os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+    ]
+    for exe in candidates:
+        if os.path.isfile(exe):
+            try:
+                subprocess.Popen([exe, f"--app={url}", "--window-size=1180,820"],
+                                 close_fds=True)
+                return True
+            except Exception:
+                continue
+    import webbrowser
+    webbrowser.open(url)
+    return False
+
+
 def main():
     try:
         server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     except OSError:
-        # 端口被占：通常已经有一个实例在跑（比如双击了两次），直接打开浏览器即可
-        import webbrowser
-        webbrowser.open(f"http://127.0.0.1:{PORT}")
+        # 端口被占：通常已经有一个实例在跑（比如双击了两次），直接开窗口即可
+        open_app_window(f"http://127.0.0.1:{PORT}")
         print(f"检测到已有实例在运行，已打开 http://127.0.0.1:{PORT}")
         return
     ip = lan_ip()
@@ -609,10 +762,10 @@ def main():
     print(f"  本机访问:  http://127.0.0.1:{PORT}")
     print(f"  手机访问:  http://{ip}:{PORT}   （手机需与电脑同一 WiFi，页面里有扫码入口）")
     print("  按 Ctrl+C 停止")
-    # exe / --open 模式：自动打开浏览器
-    import webbrowser, threading
+    # exe / --open 模式：自动打开应用窗口
+    import threading
     if getattr(sys, "frozen", False) or "--open" in sys.argv:
-        threading.Timer(1.2, lambda: webbrowser.open(f"http://127.0.0.1:{PORT}")).start()
+        threading.Timer(1.2, lambda: open_app_window(f"http://127.0.0.1:{PORT}")).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
