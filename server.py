@@ -128,6 +128,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.handle_extract()
             elif self.path == "/api/models":
                 self.handle_models()
+            elif self.path == "/api/docx":
+                self.handle_docx()
             else:
                 self._send_json({"error": "not found"}, 404)
         except (BrokenPipeError, ConnectionResetError):
@@ -137,6 +139,80 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"error": str(e)}, 500)
             except Exception:
                 pass
+
+    # ---------- Markdown 转 Word 下载 ----------
+    def handle_docx(self):
+        import re
+        payload = self._json_body()
+        md = payload.get("markdown", "")
+        title = (payload.get("filename") or "小凡智能体文档").strip()[:50]
+
+        import docx
+        from docx.shared import Pt, RGBColor
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        d = docx.Document()
+        style = d.styles["Normal"]
+        style.font.name = "微软雅黑"
+        style.font.size = Pt(11)
+
+        lines = md.split("\n")
+        i = 0
+        in_code = False
+        code_buf = []
+        for raw in lines:
+            line = raw.rstrip()
+            if line.startswith("```"):
+                if in_code:
+                    p = d.add_paragraph()
+                    run = p.add_run("\n".join(code_buf))
+                    run.font.name = "Consolas"
+                    run.font.size = Pt(9)
+                    run.font.color.rgb = RGBColor(0x44, 0x44, 0x44)
+                    code_buf = []
+                in_code = not in_code
+                continue
+            if in_code:
+                code_buf.append(raw)
+                continue
+            if not line.strip():
+                continue
+            m = re.match(r"^(#{1,4})\s+(.*)", line)
+            if m:
+                d.add_heading(m.group(2), level=min(len(m.group(1)), 3))
+                continue
+            m = re.match(r"^[-*]\s+(.*)", line)
+            if m:
+                d.add_paragraph(m.group(1), style="List Bullet")
+                continue
+            m = re.match(r"^\d+\.\s+(.*)", line)
+            if m:
+                d.add_paragraph(m.group(1), style="List Number")
+                continue
+            # 行内加粗/代码的简易处理
+            p = d.add_paragraph()
+            for seg in re.split(r"(\*\*[^*]+\*\*|`[^`]+`)", line):
+                if seg.startswith("**") and seg.endswith("**"):
+                    r = p.add_run(seg[2:-2]); r.bold = True
+                elif seg.startswith("`") and seg.endswith("`"):
+                    r = p.add_run(seg[1:-1]); r.font.name = "Consolas"
+                elif seg:
+                    p.add_run(seg)
+
+        import io
+        buf = io.BytesIO()
+        d.save(buf)
+        body = buf.getvalue()
+        fname = (title + ".docx").encode("utf-8").decode("latin-1")  # RFC2047-ish 简化
+        import urllib.parse
+        fname_encoded = urllib.parse.quote(title + ".docx")
+        self.send_response(200)
+        self.send_header("Content-Type",
+                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        self.send_header("Content-Disposition",
+                         f"attachment; filename*=UTF-8''{fname_encoded}")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     # ---------- 文件解析 ----------
     def handle_extract(self):
