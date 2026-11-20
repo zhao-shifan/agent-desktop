@@ -1,4 +1,4 @@
-﻿# 小凡智能体（XiaoFan Agent）
+# 小凡智能体（XiaoFan Agent）
 
 一个**零依赖、单文件夹、开箱即用**的 AI 智能体应用。桌面、手机、平板全平台通用：填入任意 OpenAI 兼容 API（或使用免费模型）即可开始对话，支持文件问答、图片识别、Word 导出、技能系统。
 
@@ -19,7 +19,22 @@
 
 ## 🚀 快速开始
 
-### Windows
+### 直接下载（推荐，不装 Python）
+
+到 [Releases](https://github.com/zhao-shifan/agent-desktop/releases/latest) 下载对应文件：
+
+| 文件 | 平台 | 怎么用 |
+|---|---|---|
+| `xiaofan-agent-v1.4.apk` | 安卓 | 传到手机点安装（允许「未知来源」），**不需要电脑** |
+| `xiaofan-windows-v1.4.exe` | Windows | 解压到**纯英文目录**（如 `D:\XiaoFan`）双击运行 |
+| `xiaofan-mobile-v1.4.html` | 任意手机 | 用系统浏览器打开 → 添加到主屏幕（免安装） |
+
+> 手机端不依赖电脑：聊天、联网搜索、天气、定位、技能、图片识别、导出 Word 都能用。
+> 只有「解析 Word/Excel/PDF、读本地文件、执行命令」需要桌面版。
+
+### 从源码运行（开发用）
+
+#### Windows
 
 1. 安装 [Python 3.8+](https://www.python.org/downloads/)（勾选 **Add to PATH**）
 2. 下载本仓库（Releases 里的 ZIP，解压）
