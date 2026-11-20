@@ -24,6 +24,8 @@
 2. 下载本仓库（Releases 里的 ZIP，解压）
 3. 双击 **`启动智能体.bat`** —— 浏览器自动打开
 
+> 打包成 exe 时注意：单文件 exe 要放在**纯英文路径**（如 `D:\XiaoFan`）。放在中文目录（如 `D:\桌面版agent`）下，PyInstaller 解压临时文件会失败，双击没反应。
+
 ### macOS / Linux
 
 ```bash
@@ -41,6 +43,18 @@ python3 server.py
 **方式 B · 完全独立**（无需电脑）
 把 `index.html` 发到手机（微信/QQ 传给自己）→ 浏览器打开 → 添加到主屏幕。
 独立模式直连 API，DeepSeek / OpenRouter 等支持跨域的平台可用。
+
+## 📲 装成 App
+
+**PWA（推荐，一个网页就是 App）**
+- 桌面：Chrome 打开 `http://127.0.0.1:8765` → 地址栏右侧「安装」
+- 手机：需要 https 才能安装，用 GitHub Pages 部署后打开链接 → 「添加到主屏幕」
+- 装好后是独立图标、全屏无地址栏，界面可离线打开（对话仍需网络 + Key）
+
+**APK（安卓真 App）**
+- 壳工程在 `mobile/`（Capacitor），图标在 `mobile/android-icons/`
+- 打包走 `.github/workflows/build-apk.yml`，云端出 `app-debug.apk` 产物
+- 也可以本地打：`cd mobile && npm install && npm run build:www && npx cap add android && cd android && ./gradlew assembleDebug`
 
 ## 🆓 完全免费方案
 
@@ -66,7 +80,13 @@ agent-desktop/
 ├── server.py        # 本地服务（零第三方依赖，可选装 pypdf/pypandoc 增强功能）
 ├── index.html       # 统一前端（电脑/手机同一套代码）
 ├── qrcode.js        # 二维码库（MIT）
-├── icon.ico         # 应用图标
+├── official_skills.js  # 官方技能库
+├── manifest.json    # PWA 清单
+├── sw.js            # Service Worker（离线外壳）
+├── icons/           # PWA / 手机图标（192 / 512 / maskable / apple-touch）
+├── icon.ico         # Windows 应用图标（多尺寸）
+├── make_icon.py     # 图标生成器（改一次出全套）
+├── mobile/          # Capacitor 壳工程 + 安卓图标（打 APK 用）
 └── 启动智能体.bat    # Windows 一键启动
 ```
 

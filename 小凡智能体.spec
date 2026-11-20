@@ -5,7 +5,7 @@ a = Analysis(
     ['server.py'],
     pathex=[],
     binaries=[],
-    datas=[('index.html', '.'), ('qrcode.js', '.'), ('official_skills.js', '.'), ('wallpapers', 'wallpapers')],
+    datas=[('index.html', '.'), ('qrcode.js', '.'), ('official_skills.js', '.'), ('manifest.json', '.'), ('sw.js', '.'), ('icons', 'icons'), ('wallpapers', 'wallpapers')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

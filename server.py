@@ -596,7 +596,14 @@ def lan_ip():
 
 
 def main():
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    try:
+        server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    except OSError:
+        # 端口被占：通常已经有一个实例在跑（比如双击了两次），直接打开浏览器即可
+        import webbrowser
+        webbrowser.open(f"http://127.0.0.1:{PORT}")
+        print(f"检测到已有实例在运行，已打开 http://127.0.0.1:{PORT}")
+        return
     ip = lan_ip()
     print("小凡智能体服务已启动")
     print(f"  本机访问:  http://127.0.0.1:{PORT}")
