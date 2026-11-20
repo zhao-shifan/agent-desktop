@@ -123,7 +123,23 @@ body::before{
   width:264px;flex-shrink:0;display:flex;flex-direction:column;
   background:var(--side);backdrop-filter:blur(24px);
   border-right:1px solid var(--line);position:relative;
+  transition:margin .25s ease;
 }
+.sidebar.collapsed{margin-left:-264px}
+.collapse-btn{
+  position:absolute;top:18px;right:10px;z-index:5;width:22px;height:22px;border-radius:7px;
+  border:1px solid var(--line2);background:var(--panel);color:var(--faint);cursor:pointer;
+  font-size:11px;line-height:1;transition:.2s;
+}
+.collapse-btn:hover{color:var(--accent2);border-color:var(--accent)}
+.expand-btn{
+  position:fixed;top:14px;left:14px;z-index:45;width:38px;height:38px;border-radius:11px;display:none;
+  border:1px solid var(--line2);background:rgba(20,20,24,.85);backdrop-filter:blur(10px);
+  color:var(--dim);cursor:pointer;font-size:14px;transition:.2s;
+}
+.expand-btn.show{display:flex;align-items:center;justify-content:center}
+.skill-select{border-color:rgba(226,184,87,.35);max-width:150px}
+.skill-select:hover{border-color:var(--accent)}
 .sidebar::after{content:"";position:absolute;top:0;bottom:0;right:-1px;width:1px;
   background:linear-gradient(180deg,transparent,var(--accent-dim) 30%,var(--accent-dim) 70%,transparent)}
 .brand{padding:28px 22px 20px;border-bottom:1px solid var(--line);position:relative;overflow:hidden}
@@ -417,10 +433,12 @@ body::before{
 </head>
 <body>
 <button class="menu-toggle" onclick="document.querySelector('.sidebar').classList.toggle('open')">☰</button>
+<button class="expand-btn" id="expandBtn" onclick="toggleSidebar()" title="展开侧边栏">»</button>
 <div class="aurora"><i></i><i></i><i></i></div>
 <canvas id="meteors" style="position:fixed;inset:0;z-index:0;pointer-events:none"></canvas>
 <div class="app">
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
+    <button class="collapse-btn" onclick="toggleSidebar()" title="折叠侧边栏">«</button>
     <div class="brand">
       <h1>小凡智能体</h1>
       <p>XIAOFAN · AGENT</p>
@@ -470,6 +488,7 @@ body::before{
           <input type="file" id="fileInput" multiple hidden>
           <span class="composer-note" id="composerNote">支持文档 / 表格 / PDF / 代码</span>
           <div class="bar-right">
+            <select id="skillSelect" class="model-select skill-select" onchange="setQuickSkill(this.value)" title="选择技能"></select>
             <select id="quickModel" onchange="setQuickModel(this.value)" class="model-select" title="切换模型"></select>
             <button class="btn-send" id="sendBtn" onclick="onSend()" title="发送">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
@@ -560,6 +579,27 @@ body::before{
   </div>
 </div>
 
+<!-- 首次使用引导 -->
+<div class="overlay" id="onboardOverlay">
+  <div class="modal" style="width:min(460px,100%);text-align:center">
+    <div style="font-size:40px;margin:6px 0 10px">✨</div>
+    <h3 style="margin-bottom:8px">欢迎使用小凡智能体</h3>
+    <p class="sub" style="margin-bottom:18px">只需一个<b>免费 Key</b> 即可开始对话。<br>推荐接入智谱 GLM——注册就送，GLM-Flash 模型<b>完全免费</b>。</p>
+    <div style="text-align:left;border:1px solid var(--line2);border-radius:14px;padding:16px 18px;margin-bottom:18px;background:var(--panel)">
+      <div style="font-size:12px;font-weight:600;color:var(--accent2);margin-bottom:8px">🔑 三步开始（约 1 分钟）</div>
+      <ol style="padding-left:20px;margin:0">
+        <li style="font-size:12.5px;color:var(--dim);line-height:2">点下方按钮，打开智谱官网并登录</li>
+        <li style="font-size:12.5px;color:var(--dim);line-height:2">「API 密钥」→ 添加新 Key → 复制</li>
+        <li style="font-size:12.5px;color:var(--dim);line-height:2">点「我已有 Key」粘贴进去，保存即用</li>
+      </ol>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <a class="btn-key" href="https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys" target="_blank" style="justify-content:center">🔗 前往智谱官网领免费 Key</a>
+      <button class="btn-primary" onclick="onboardFill()">我已有 Key，立即填写</button>
+      <button class="btn-ghost" onclick="onboardLater()">稍后再说</button>
+    </div>
+  </div>
+</div>
 <script src="/qrcode.js"></script>
 <script src="/config.local.js"></script>
 <!-- 技能中心 -->
@@ -569,8 +609,21 @@ body::before{
       <h3>🧩 技能中心</h3>
       <button class="x-close" onclick="$('skillOverlay').classList.remove('show')">✕</button>
     </div>
-    <p class="sub">点选一个技能，对话时自动按该领域的专业规范回答。再次点击可取消。技能本质是内置的专业系统提示词（与豆包/千问的智能体能力同一原理），也兼容 Claude Skills 规范的字段结构。</p>
-    <div class="theme-grid" id="skillGrid"></div>
+    <p class="sub">点选一个技能，对话时自动按该领域的专业规范回答。再次点击可取消。也支持导入 <b>Claude Skills 规范</b>的技能包（.zip / .md，含 frontmatter 的 SKILL.md 自动识别）。</p>
+    <div class="theme-grid" id="skillGrid" style="grid-template-columns:repeat(2,1fr)"></div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn-ghost" style="flex:1" onclick="pickSkillFile()">📦 导入技能包（.zip / .md）</button>
+      <button class="btn-ghost" style="flex:1" onclick="showCustomForm()">✏️ 手动创建技能</button>
+    </div>
+    <input type="file" id="skillFileInput" accept=".zip,.md,.markdown,.txt" hidden>
+    <div id="customForm" style="display:none;margin-top:16px;border:1px solid var(--line2);border-radius:14px;padding:16px">
+      <div class="field"><label>技能名称</label><input id="cusName" placeholder="如：周报生成"></div>
+      <div class="field"><label>一句话描述</label><input id="cusDesc" placeholder="如：按公司周报模板生成"></div>
+      <div class="field"><label>技能提示词（System Prompt）</label>
+        <textarea id="cusPrompt" rows="5" style="width:100%;padding:11px 13px;border-radius:11px;border:1px solid var(--line2);background:var(--bg2);color:var(--txt);font-size:13px;font-family:var(--sans);outline:none;resize:vertical" placeholder="定义这个技能的专业规则和输出格式…"></textarea></div>
+      <p id="cusTip" style="font-size:12px;color:#e5735f;min-height:16px;margin:4px 0"></p>
+      <button class="btn-primary" style="width:100%" onclick="addCustomSkill()">保存技能</button>
+    </div>
   </div>
 </div>
 <!-- 主题选择器 -->
@@ -1127,6 +1180,12 @@ function autoFetchModels(){
 $("fKey").addEventListener("input", autoFetchModels);
 $("fBase").addEventListener("change", autoFetchModels);
 
+function toggleSidebar(){
+  const sb = $("sidebar");
+  sb.classList.toggle("collapsed");
+  $("expandBtn").classList.toggle("show", sb.classList.contains("collapsed"));
+}
+
 /* ================= 技能系统 ================= */
 const SKILLS = [
   {id:"paper", name:"📄 论文写作规范", desc:"学术论文/期刊格式，含摘要、关键词、引用规范",
@@ -1147,25 +1206,95 @@ const SKILLS = [
    prompt:"你是爆款文案写手。输出：1)3个备选标题（带emoji、制造好奇或共鸣）；2)正文300-500字，多用短句和emoji，段落间空行；3)结尾引导互动（提问式结尾）；4)附8-12个话题标签；5)语气亲切真实，像朋友分享，不像广告。"},
 ];
 let activeSkill = localStorage.getItem("aria.skill") || "";
+let customSkills = JSON.parse(localStorage.getItem("aria.customSkills")||"[]");
+function allSkills(){ return [...SKILLS, ...customSkills]; }
 function renderSkills(){
-  $("skillGrid").innerHTML = SKILLS.map(s=>{
+  const grid = $("skillGrid");
+  grid.innerHTML = allSkills().map((s,i)=>{
     const on = activeSkill === s.id;
+    const del = s.custom ? `<span style="margin-left:auto;color:var(--faint);cursor:pointer" title="删除" onclick="event.stopPropagation();delCustom(${i-SKILLS.length})">✕</span>` : "";
     return `<div class="theme-card ${on?"on":""}" onclick="toggleSkill('${s.id}')" style="padding:12px">
       <span class="tcheck">✓</span>
-      <div style="font-size:14px;margin-bottom:6px">${s.name}</div>
+      <div style="font-size:14px;margin-bottom:6px;display:flex;align-items:center">${s.name}${del}</div>
       <div style="font-size:11.5px;color:var(--dim);line-height:1.6">${s.desc}</div>
     </div>`;
   }).join("");
-  $("skillBtnText").textContent = activeSkill ? "技能·" + (SKILLS.find(s=>s.id===activeSkill)||{}).name.replace(/^\S+\s/,"") : "技能";
+  $("skillBtnText").textContent = activeSkill ? "技能·" + (allSkills().find(s=>s.id===activeSkill)||{}).name.replace(/^\S+\s/,"") : "技能";
+  renderSkillSelect();
+}
+function renderSkillSelect(){
+  const sel = $("skillSelect"); if(!sel) return;
+  sel.innerHTML = `<option value="">🧩 无技能</option>` +
+    allSkills().map(s=>`<option value="${esc(s.id)}" ${s.id===activeSkill?"selected":""}>${esc(s.name)}</option>`).join("");
+}
+function setQuickSkill(id){
+  activeSkill = id;
+  localStorage.setItem("aria.skill", activeSkill);
+  const sk = allSkills().find(s=>s.id===id);
+  setStatus(id ? "技能已启用：" + sk.name : "技能已关闭");
 }
 function toggleSkill(id){
   activeSkill = (activeSkill === id) ? "" : id;
   localStorage.setItem("aria.skill", activeSkill);
   renderSkills();
-  setStatus(activeSkill ? "技能已启用：" + SKILLS.find(s=>s.id===id).name : "技能已关闭");
+  setStatus(activeSkill ? "技能已启用：" + allSkills().find(s=>s.id===id).name : "技能已关闭");
 }
 function openSkills(){ renderSkills(); $("skillOverlay").classList.add("show"); }
 $("skillOverlay").addEventListener("click", e=>{ /* 仅 ✕ 关闭 */ });
+
+/* ---- 自定义技能：手动创建 / 上传 zip / md（兼容 Claude Skills 规范） ---- */
+function saveCustom(){ localStorage.setItem("aria.customSkills", JSON.stringify(customSkills)); }
+function delCustom(i){
+  if(confirm("删除这个自定义技能？")){ customSkills.splice(i,1); saveCustom();
+    if(activeSkill && !allSkills().find(s=>s.id===activeSkill)){ activeSkill=""; localStorage.setItem("aria.skill",""); }
+    renderSkills(); }
+}
+function showCustomForm(){
+  $("customForm").style.display = "block";
+  $("cusName").value=""; $("cusDesc").value=""; $("cusPrompt").value="";
+  $("cusName").focus();
+}
+function addCustomSkill(){
+  const name = $("cusName").value.trim(), desc = $("cusDesc").value.trim()||"自定义技能", prompt = $("cusPrompt").value.trim();
+  const tip = $("cusTip");
+  if(!name || !prompt){ tip.textContent = "⚠ 名称和提示词必填"; return; }
+  customSkills.push({id:"custom-"+uid(), name:"🧩 "+name, desc, prompt, custom:true});
+  saveCustom(); $("customForm").style.display="none"; renderSkills();
+  setStatus("自定义技能已添加："+name);
+}
+/* 解析 Claude Skills 规范格式：frontmatter(name/description) + 正文 */
+function parseSkillMd(text){
+  const m = text.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
+  if(m){
+    const meta = {};
+    m[1].split("\n").forEach(l=>{ const kv = l.match(/^(\w+):\s*(.*)$/); if(kv) meta[kv[1].trim()] = kv[2].trim(); });
+    return {name: meta.name || "导入技能", desc: meta.description || "导入的技能", prompt: m[2].trim()};
+  }
+  const first = text.split("\n").find(l=>l.trim());
+  return {name: (first||"导入技能").replace(/^#+\s*/,"").slice(0,20), desc:"上传的技能文件", prompt:text.trim()};
+}
+function pickSkillFile(){ $("skillFileInput").click(); }
+$("skillFileInput").addEventListener("change", async e=>{
+  const f = e.target.files[0]; e.target.value=""; if(!f) return;
+  setStatus("正在导入技能 "+f.name+" …");
+  try{
+    let parsed;
+    if(f.name.toLowerCase().endsWith(".zip")){
+      const buf = await f.arrayBuffer();
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      const r = await fetch("/api/skill",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({name:f.name, data:b64})});
+      const d = await r.json();
+      if(d.error){ setStatus(d.error, true); return; }
+      parsed = d;
+    }else{
+      parsed = parseSkillMd(await f.text());
+    }
+    customSkills.push({id:"custom-"+uid(), name:"🧩 "+parsed.name.slice(0,20), desc:(parsed.desc||"").slice(0,60), prompt:parsed.prompt, custom:true});
+    saveCustom(); renderSkills();
+    setStatus("技能导入成功："+parsed.name);
+  }catch(err){ setStatus("导入失败："+err.message, true); }
+});
 
 /* ================= 动态星空：流星 + 浮尘 ================= */
 (function(){
@@ -1235,6 +1364,13 @@ if(!cfg || !cfg.apiKey){
 }
 refreshCfg(); applyBrand(); renderSessions();
 if(curId && curChat()) openChat(curId); else newChat();
+
+/* 首次使用引导：没配过 Key 就弹 */
+function onboardFill(){ localStorage.setItem("aria.onboarded","1"); $("onboardOverlay").classList.remove("show"); openSettings(); }
+function onboardLater(){ localStorage.setItem("aria.onboarded","1"); $("onboardOverlay").classList.remove("show"); }
+if(!localStorage.getItem("aria.onboarded")){
+  $("onboardOverlay").classList.add("show");
+}
 
 /* ================= 手机扫码 ================= */
 async function openQR(){
