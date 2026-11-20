@@ -133,11 +133,14 @@ body::before{
 }
 .collapse-btn:hover{color:var(--accent2);border-color:var(--accent)}
 .expand-btn{
-  position:fixed;top:14px;left:14px;z-index:45;width:38px;height:38px;border-radius:11px;display:none;
-  border:1px solid var(--line2);background:rgba(20,20,24,.85);backdrop-filter:blur(10px);
-  color:var(--dim);cursor:pointer;font-size:14px;transition:.2s;
+  position:fixed;top:14px;left:14px;z-index:45;width:40px;height:40px;border-radius:13px;display:none;
+  border:1px solid rgba(226,184,87,.45);cursor:pointer;font-size:15px;
+  background:linear-gradient(135deg,rgba(38,33,24,.92),rgba(24,22,18,.92));
+  color:var(--accent2);backdrop-filter:blur(12px);transition:.2s;
+  box-shadow:0 3px 16px rgba(226,184,87,.18);
 }
 .expand-btn.show{display:flex;align-items:center;justify-content:center}
+.expand-btn:hover{transform:translateY(-1px);border-color:var(--accent);box-shadow:0 5px 22px rgba(226,184,87,.3)}
 .skill-select{border-color:rgba(226,184,87,.35);max-width:150px}
 .skill-select:hover{border-color:var(--accent)}
 .sidebar::after{content:"";position:absolute;top:0;bottom:0;right:-1px;width:1px;
@@ -310,12 +313,12 @@ body::before{
 .composer:focus-within{border-color:rgba(217,164,65,.55)}
 .composer textarea{
   width:100%;background:none;border:none;outline:none;resize:none;
-  color:var(--txt);font-family:var(--sans);font-size:14.5px;line-height:1.7;
-  padding:16px 18px 8px;max-height:180px;
+  color:var(--txt);font-family:var(--sans);font-size:14px;line-height:1.5;
+  padding:13px 18px 2px;max-height:170px;min-height:24px;
 }
 .composer textarea::placeholder{color:var(--faint)}
-.composer-bar{display:flex;align-items:center;padding:8px 12px 12px 12px;gap:10px}
-.bar-right{display:flex;align-items:center;gap:10px;margin-left:auto}
+.composer-bar{display:flex;align-items:center;padding:5px 12px 10px 12px;gap:10px}
+.bar-right{display:flex;align-items:center;gap:9px;margin-left:auto}
 .round-btn{
   width:38px;height:38px;border-radius:50%;border:1px solid var(--line2);background:var(--panel);
   color:var(--dim);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.2s;
@@ -1693,8 +1696,10 @@ $("wallUploadInput").addEventListener("change", async e=>{
       case "cloud": p.y += p.vy;
         if(p.y < -p.r){ p.y = H + p.r; p.x = R(0,W); } return true;
       case "photo":
-        p.y += p.vy; p.rot += p.vr; p.phase += .012;
-        if(p.y > H + 150){ p.y = -150; p.x = R(0,W); }
+        p.y += p.vy; p.rot += p.vr; p.phase += .008;
+        p.x += p.drift;
+        if(p.y > H + 200){ p.y = -220; p.x = R(0,W); }
+        if(p.x < -160) p.x = W + 120; if(p.x > W + 160) p.x = -120;
         return true;
     }
   }
@@ -1707,18 +1712,21 @@ $("wallUploadInput").addEventListener("change", async e=>{
 
   // 主题切换时重建特效（photoRain=true 时切换为照片漂浮模式）
   const photoImgs = [];
-  for(let i=1;i<=8;i++){
-    const im = new Image(); im.src = `/wallpapers/card${i}.jpg`; photoImgs.push(im);
+  for(let i=1;i<=40;i++){
+    const im = new Image(); im.src = `/wallpapers/card${String(i).padStart(2,"0")}.jpg`; photoImgs.push(im);
   }
+  const usablePhotos = () => photoImgs.filter(im=>im.complete && im.naturalWidth);
   window.__applyBGEffect = function(theme, rain){
     if(raf) cancelAnimationFrame(raf);
     resize();
     if(rain){
+      const imgs = usablePhotos();
       parts = [];
-      for(let i=0;i<12;i++) parts.push({
-        type:"photo", img:photoImgs[i % photoImgs.length],
-        x:R(0,W), y:R(-H,0), vy:R(.25,.7), rot:R(-.3,.3), vr:R(-.004,.004),
-        sway:R(30,80), scale:R(.55,1), alpha:R(.25,.6)
+      const n = Math.min(imgs.length, 14);
+      for(let i=0;i<n;i++) parts.push({
+        type:"photo", img:imgs[i % imgs.length],
+        x:R(0,W), y:R(-H,0), vy:R(.10,.32), rot:R(-.38,.38), vr:R(-.006,.006),
+        sway:R(40,90), scale:R(.5,1), alpha:R(.2,.55), drift:R(-.15,.15)
       });
       tick(); return;
     }
