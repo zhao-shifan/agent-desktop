@@ -1,0 +1,63 @@
+name: build-apk
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: 安装依赖
+        working-directory: mobile
+        run: npm install --no-audit --no-fund
+
+      - name: 生成 www（把网页产物收进壳里）
+        working-directory: mobile
+        run: npm run build:www
+
+      - name: 生成安卓工程
+        working-directory: mobile
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      - name: 换成小凡图标
+        working-directory: mobile
+        run: |
+          for dpi in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            dst=android/app/src/main/res/mipmap-$dpi
+            mkdir -p "$dst"
+            cp android-icons/mipmap-$dpi/ic_launcher*.png "$dst"/ 2>/dev/null || true
+          done
+          mkdir -p android/app/src/main/res/values
+          cp android-icons/values/ic_launcher_background.xml android/app/src/main/res/values/ 2>/dev/null || true
+
+      - name: 接受 SDK 许可
+        run: yes | sdkmanager --licenses > /dev/null 2>&1 || true
+
+      - name: 打包 debug APK
+        working-directory: mobile/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xiaofan-agent-debug-apk
+          path: mobile/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
