@@ -137,6 +137,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.handle_docx()
             elif self.path == "/api/skill":
                 self.handle_skill()
+            elif self.path == "/api/verify":
+                self.handle_verify()
             else:
                 self._send_json({"error": "not found"}, 404)
         except (BrokenPipeError, ConnectionResetError):
@@ -232,6 +234,31 @@ class Handler(BaseHTTPRequestHandler):
         buf = io.BytesIO()
         d.save(buf)
         return buf.getvalue()
+
+    # ---------- Key 真实校验（发一次最小请求验证） ----------
+    def handle_verify(self):
+        payload = self._json_body()
+        base = (payload.get("baseUrl") or "").rstrip("/")
+        key = payload.get("apiKey") or ""
+        model = payload.get("model") or ""
+        if not base or not key:
+            self._send_json({"ok": False, "error": "地址或 Key 为空"}); return
+        req = urllib.request.Request(
+            base + "/chat/completions",
+            data=json.dumps({"model": model or "gpt-4o-mini",
+                             "messages": [{"role": "user", "content": "hi"}],
+                             "max_tokens": 1, "stream": False}).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=25) as resp:
+                resp.read()
+            self._send_json({"ok": True})
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="replace")[:200]
+            self._send_json({"ok": False, "code": e.code, "error": detail})
+        except Exception as e:
+            self._send_json({"ok": False, "error": str(e)[:200]})
 
     # ---------- 技能包导入（zip 内 SKILL.md，Claude Skills 规范） ----------
     def handle_skill(self):
