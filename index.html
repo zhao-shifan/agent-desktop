@@ -7,6 +7,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./icons/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon-180.png">
 <title>小凡智能体</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=Noto+Serif+SC:wght@500;700&display=swap" rel="stylesheet">
@@ -801,9 +804,9 @@ body::before{
     </div>
   </div>
 </div>
-<script src="/qrcode.js"></script>
-<script src="/config.local.js"></script>
-<script src="/official_skills.js"></script>
+<script src="./qrcode.js"></script>
+<script src="./config.local.js"></script>
+<script src="./official_skills.js"></script>
 <!-- 技能中心 -->
 <div class="overlay" id="skillOverlay">
   <div class="modal" style="width:min(620px,100%)">
@@ -1036,7 +1039,23 @@ let attachments = [];   // {name, text, image?}
 let history = [];       // 发送给模型的消息
 let streaming = false, abortCtl = null;
 /* 统一模式：file:// 打开 = 独立模式（直连API）；经服务打开 = 完整模式（代理+文件解析+扫码） */
-const STANDALONE = location.protocol === "file:";
+let STANDALONE = location.protocol === "file:";
+/* 模式判定：file:// 打开 = 独立模式；由本地服务提供 = 完整模式；
+   托管到静态站（GitHub Pages 等，没有 /api/health）时自动降级为独立模式 */
+(async function detectMode(){
+  if(STANDALONE) return;
+  try{
+    const ctl = new AbortController();
+    const timer = setTimeout(()=>ctl.abort(), 1500);
+    const r = await fetch("./api/health", {signal: ctl.signal, cache: "no-store"});
+    clearTimeout(timer);
+    const d = await r.json();
+    if(!d || !d.ok) throw new Error("no backend");
+  }catch(e){
+    STANDALONE = true;
+    if(typeof applyStandaloneUI === "function") applyStandaloneUI();
+  }
+})();
 
 /* ================= 工具 ================= */
 const $ = id => document.getElementById(id);
@@ -2818,9 +2837,14 @@ $("wallUploadInput").addEventListener("change", async e=>{
 /* ================= 启动 ================= */
 const savedTheme = localStorage.getItem("aria.theme");
 if(savedTheme) document.body.dataset.theme = savedTheme;
-if(STANDALONE){
+function applyStandaloneUI(){
   const qb=$("qrBtn"); if(qb) qb.style.display="none";
   const note=$("composerNote"); if(note) note.textContent="支持文档 / 图片 · 独立模式";
+}
+if(STANDALONE) applyStandaloneUI();
+/* PWA：注册 Service Worker（只对 http/https 生效，file:// 打开时跳过） */
+if("serviceWorker" in navigator && location.protocol.startsWith("http")){
+  addEventListener("load", ()=>{ navigator.serviceWorker.register("./sw.js").catch(()=>{}); });
 }
 /* 开箱即用：无配置时默认接入免费模型（Key 来自本机私有配置，不会上传） */
 if(!cfg || !cfg.apiKey){
@@ -2851,7 +2875,7 @@ async function openQR(){
     const url = d.url;
     $("qrUrl").textContent = url;
     if(typeof qrcode === "undefined"){
-      await new Promise((res, rej)=>{ const s=document.createElement("script"); s.src="/qrcode.js"; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
+      await new Promise((res, rej)=>{ const s=document.createElement("script"); s.src="./qrcode.js"; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
     }
     const qr = qrcode(0, "M");
     qr.addData(url); qr.make();

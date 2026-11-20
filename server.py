@@ -139,17 +139,41 @@ class Handler(BaseHTTPRequestHandler):
             "/qrcode.js": "qrcode.js",
             "/config.local.js": "config.local.js",
             "/official_skills.js": "official_skills.js",
+            "/manifest.json": "manifest.json",
+            "/sw.js": "sw.js",
         }
+        TYPES = {".js": "application/javascript; charset=utf-8",
+                 ".json": "application/json; charset=utf-8",
+                 ".webmanifest": "application/manifest+json; charset=utf-8",
+                 ".png": "image/png", ".ico": "image/x-icon", ".jpg": "image/jpeg"}
         if self.path in static:
             path = os.path.join(ROOT, static[self.path])
-            ctype = "application/javascript" if self.path.endswith(".js") else "text/html; charset=utf-8"
+            if not os.path.isfile(path):
+                self._send_json({"error": "not found"}, 404)
+                return
+            ctype = TYPES.get(os.path.splitext(path)[1].lower(), "text/html; charset=utf-8")
             with open(path, "rb") as f:
                 body = f.read()
             self.send_response(200)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
+            if self.path == "/sw.js":  # Service Worker 必须不被强缓存，否则更新不生效
+                self.send_header("Cache-Control", "no-cache")
             self.end_headers()
             self.wfile.write(body)
+        elif self.path.startswith("/icons/"):
+            fname = os.path.basename(self.path)  # 防目录穿越
+            fpath = os.path.join(ROOT, "icons", fname)
+            if os.path.isfile(fpath):
+                body = open(fpath, "rb").read()
+                self.send_response(200)
+                self.send_header("Content-Type", TYPES.get(os.path.splitext(fname)[1].lower(), "application/octet-stream"))
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "max-age=86400")
+                self.end_headers()
+                self.wfile.write(body)
+            else:
+                self._send_json({"error": "not found"}, 404)
         elif self.path.startswith("/wallpapers/"):
             fname = os.path.basename(self.path)  # 防目录穿越
             fpath = os.path.join(wallpaper_dir(), fname)
