@@ -11,6 +11,7 @@ import re
 import subprocess
 import urllib.parse
 import urllib.request
+import concurrent.futures
 
 MAX_CHARS = 12000
 MAX_ROUNDS = 4          # 一次提问里最多来回几轮工具调用
@@ -76,14 +77,14 @@ def _parse_ddg(page, count):
         if not href.startswith("http") or href in seen or not title:
             continue
         seen.add(href)
-        out.append("%d. %s\n   %s" % (len(out) + 1, title, href))
+        out.append({"title": title, "url": href, "snippet": ""})
         if len(out) >= count:
             break
     snippets = [strip_html(s) for s in
                 re.findall(r'(?is)class="result__snippet"[^>]*>(.*?)</a>', page)]
     for i, sn in enumerate(snippets[:len(out)]):
         if sn:
-            out[i] += "\n   " + sn[:220]
+            out[i]["snippet"] = sn[:220]
     return out
 
 
@@ -93,14 +94,83 @@ def _parse_360(page, count):
         href, title = html.unescape(m.group(1)), strip_html(m.group(2))
         if not href.startswith("http") or not title:
             continue
-        out.append("%d. %s\n   %s" % (len(out) + 1, title, href))
+        out.append({"title": title, "url": href, "snippet": ""})
         if len(out) >= count:
             break
     return out
 
 
+def _parse_bing(page, count):
+    out = []
+    blocks = re.findall(r'(?is)<li class="b_algo".*?</li>', page)
+    for b in blocks:
+        mt = re.search(r'(?is)<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', b)
+        if not mt:
+            continue
+        href, title = html.unescape(mt.group(1)), strip_html(mt.group(2))
+        if not href.startswith("http") or not title:
+            continue
+        ms = re.search(r'(?is)<p[^>]*>(.*?)</p>', b)
+        out.append({"title": title, "url": href,
+                    "snippet": strip_html(ms.group(1)) if ms else ""})
+        if len(out) >= count:
+            break
+    return out
+
+
+def _parse_baidu(page, count):
+    out = []
+    for m in re.finditer(r'(?is)<h3[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', page):
+        href, title = html.unescape(m.group(1)), strip_html(m.group(2))
+        if not href.startswith("http") or not title:
+            continue
+        out.append({"title": title, "url": href, "snippet": ""})
+        if len(out) >= count:
+            break
+    return out
+
+
+# 免 Key 的多引擎：并发抓取后合并去重，任何一个源挂了都不影响整体
+_SEARCH_SOURCES = [
+    ("bing", "https://cn.bing.com/search?q=%s&setlang=zh-CN", _parse_bing),
+    ("360", "https://www.so.com/s?q=%s", _parse_360),
+    ("ddg", "https://html.duckduckgo.com/html/?q=%s", _parse_ddg),
+    ("baidu", "https://www.baidu.com/s?wd=%s", _parse_baidu),
+]
+
+
+def _norm_url(u):
+    u = re.sub(r"^https?://", "", u.lower())
+    u = re.sub(r"^www\.", "", u)
+    return u.rstrip("/").split("#")[0]
+
+
+def _multi_engine_search(query, count):
+    q = urllib.parse.quote(query)
+    results, seen = [], set()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(_SEARCH_SOURCES)) as ex:
+        futures = {ex.submit(_http, url % q, None, None, 15): (name, parser)
+                   for name, url, parser in _SEARCH_SOURCES}
+        for fut in concurrent.futures.as_completed(futures, timeout=20):
+            name, parser = futures[fut]
+            try:
+                items = parser(fut.result(), count)
+            except Exception:
+                continue
+            for it in items:
+                key = _norm_url(it["url"])
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                it["source"] = name
+                results.append(it)
+                if len(results) >= count * 2:
+                    break
+    return results
+
+
 def web_search(query, count=5, key=""):
-    """联网搜索。有 Tavily Key 走 Tavily；否则 DuckDuckGo，再不行用 360 兜底。"""
+    """联网搜索：有 Key 走 Tavily，否则多引擎聚合（bing/360/ddg/baidu）后去重。"""
     count = max(1, min(int(count or 5), 10))
     if not (query or "").strip():
         return "搜索关键词为空"
@@ -123,30 +193,122 @@ def web_search(query, count=5, key=""):
         except Exception:
             pass
 
-    errors = []
     try:
-        res = _parse_ddg(_http("https://html.duckduckgo.com/html/?q=" + urllib.parse.quote(q)), count)
-        if res:
-            return "\n".join(res)
-        errors.append("duckduckgo 无结果")
+        items = _multi_engine_search(q, count)
     except Exception as e:
-        errors.append("duckduckgo: %s" % e)
+        return "（搜索失败：%s）" % e
+    if not items:
+        return "（没搜到结果，换个关键词再试）"
 
-    try:
-        res = _parse_360(_http("https://www.so.com/s?q=" + urllib.parse.quote(q)), count)
-        if res:
-            return "\n".join(res)
-        errors.append("360 无结果")
-    except Exception as e:
-        errors.append("360: %s" % e)
+    lines = []
+    for i, it in enumerate(items[:count], 1):
+        block = "%d. %s\n   %s" % (i, it["title"], it["url"])
+        if it.get("snippet"):
+            block += "\n   " + it["snippet"][:220]
+        block += "\n   — 来源：%s" % it.get("source", "")
+        lines.append(block)
+    return "\n".join(lines)
 
-    return "（没搜到结果：%s）" % "；".join(errors)
+
+def get_location():
+    """按出口 IP 粗略定位（免 Key）。返回城市/省份/国家与经纬度。"""
+    for url, parser in [
+        ("http://ip-api.com/json/?lang=zh-CN",
+         lambda d: (d.get("city"), d.get("regionName"), d.get("country"),
+                    d.get("lat"), d.get("lon"), d.get("isp"))),
+        ("https://ipapi.co/json/",
+         lambda d: (d.get("city"), d.get("region"), d.get("country_name"),
+                    d.get("latitude"), d.get("longitude"), d.get("org"))),
+    ]:
+        try:
+            data = json.loads(_http(url))
+            city, region, country, lat, lon, isp = parser(data)
+            if not city:
+                continue
+            return ("IP 定位结果（精度到城市，VPN 会偏）：\n"
+                    "城市：%s\n省份：%s\n国家：%s\n经纬度：%s, %s\n网络：%s\n"
+                    "（如需精确位置，请在手机/浏览器里授权定位）"
+                    % (city, region or "-", country or "-", lat, lon, isp or "-"))
+        except Exception:
+            continue
+    return "IP 定位失败（网络不通或接口限流），可以让用户直接告诉你城市"
+
+
+def _geocode(city):
+    """城市名 → 经纬度，Open-Meteo 地理编码（免 Key）。"""
+    url = "https://geocoding-api.open-meteo.com/v1/search?count=1&language=zh&format=json&name=" + \
+          urllib.parse.quote(city)
+    data = json.loads(_http(url))
+    results = data.get("results") or []
+    if not results:
+        return None
+    r = results[0]
+    return r.get("name"), r.get("latitude"), r.get("longitude"), r.get("country")
+
+
+_WEATHER_CODES = {
+    0: "晴", 1: "晴间多云", 2: "多云", 3: "阴", 45: "雾", 48: "雾凇",
+    51: "毛毛雨", 53: "小雨", 55: "中雨", 61: "小雨", 63: "中雨", 65: "大雨",
+    71: "小雪", 73: "中雪", 75: "大雪", 80: "阵雨", 81: "强阵雨", 82: "暴雨",
+    95: "雷阵雨", 96: "雷阵雨伴冰雹", 99: "强雷暴",
+}
+
+
+def get_weather(city="", days=3):
+    """天气：Open-Meteo（免 Key）。city 为空则先 IP 定位。"""
+    days = max(1, min(int(days or 3), 7))
+    place, lat, lon = None, None, None
+    if city:
+        g = _geocode(city)
+        if not g:
+            return "找不到城市：%s" % city
+        place, lat, lon, country = g
+        place = "%s（%s）" % (place, country or "")
+    else:
+        try:
+            ip = json.loads(_http("http://ip-api.com/json/?lang=zh-CN"))
+            lat, lon = ip.get("lat"), ip.get("lon")
+            place = "%s（IP 定位）" % (ip.get("city") or "当前位置")
+        except Exception:
+            return "没给城市，IP 定位也失败了，让用户直接说个城市名"
+
+    url = ("https://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s"
+           "&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m"
+           "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
+           "&timezone=auto&forecast_days=%d" % (lat, lon, days))
+    data = json.loads(_http(url))
+    cur = data.get("current") or {}
+    daily = data.get("daily") or {}
+    lines = ["%s 当前天气：%s，%s℃，体感 %s℃，湿度 %s%%，风速 %s km/h" % (
+        place,
+        _WEATHER_CODES.get(cur.get("weather_code"), "未知"),
+        cur.get("temperature_2m"), cur.get("apparent_temperature"),
+        cur.get("relative_humidity_2m"), cur.get("wind_speed_10m"))]
+    dates = daily.get("time") or []
+    for i, d in enumerate(dates[:days]):
+        lines.append("%s：%s，%s~%s℃，降水概率 %s%%" % (
+            d,
+            _WEATHER_CODES.get((daily.get("weather_code") or [None])[i], "未知"),
+            (daily.get("temperature_2m_min") or [None])[i],
+            (daily.get("temperature_2m_max") or [None])[i],
+            (daily.get("precipitation_probability_max") or [None])[i]))
+    return "\n".join(lines)
 
 
 def fetch_url(url):
     if not re.match(r"^https?://", url or ""):
         return "只支持 http/https 链接"
-    text = strip_html(_http(url))
+    raw = _http(url)
+    text = ""
+    # 首选 trafilatura：社区标准的正文抽取库，去导航/广告/页脚效果远好于正则
+    try:
+        import trafilatura
+        text = trafilatura.extract(raw, url=url, include_comments=False,
+                                   include_tables=True, favor_recall=True) or ""
+    except Exception:
+        text = ""
+    if len(text.strip()) < 200:
+        text = strip_html(raw)
     if len(text) > MAX_CHARS:
         text = text[:MAX_CHARS] + "\n…（已截断）"
     return text or "（页面没有可读正文）"
@@ -268,6 +430,16 @@ TOOL_DEFS = [
         "description": "在本机执行一条命令并返回输出（仅当用户开启了命令权限时可用）。",
         "parameters": {"type": "object", "properties": {
             "command": {"type": "string"}}, "required": ["command"]}}},
+    {"type": "function", "function": {
+        "name": "get_location",
+        "description": "按出口 IP 粗略判断用户所在城市（免 Key、无需授权，精度到城市）。用户问天气/本地信息但没说城市时可先调它。",
+        "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
+        "name": "get_weather",
+        "description": "查询当前天气和未来几天预报（Open-Meteo，免 Key）。",
+        "parameters": {"type": "object", "properties": {
+            "city": {"type": "string", "description": "城市名，如 上海；留空则按 IP 定位"},
+            "days": {"type": "integer", "description": "预报天数 1-7，默认 3"}}}}},
 ]
 
 
@@ -297,6 +469,10 @@ def run_tool(call, perm=None):
             if not perm.get("allowCommand"):
                 return "被拒绝：用户没有开启命令执行权限，请让用户到设置里打开「允许执行命令」。"
             return run_command(args.get("command", ""), work_dir)
+        if name == "get_location":
+            return get_location()
+        if name == "get_weather":
+            return get_weather(args.get("city", ""), args.get("days", 3))
         return "未知工具：%s" % name
     except PermissionError as e:
         return "被拒绝：%s" % e
