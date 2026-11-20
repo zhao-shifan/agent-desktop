@@ -149,6 +149,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"ok": True})
         elif self.path == "/api/lan":
             self._send_json({"ok": True, "url": f"http://{lan_ip()}:{PORT}"})
+        elif self.path == "/api/wallpapers":
+            self._send_json({"ok": True, "count": wallpaper_count()})
         else:
             self._send_json({"error": "not found"}, 404)
 
@@ -166,8 +168,6 @@ class Handler(BaseHTTPRequestHandler):
                 self.handle_skill()
             elif self.path == "/api/verify":
                 self.handle_verify()
-            elif self.path == "/api/wallpapers":
-                self._send_json({"ok": True, "count": wallpaper_count()})
             elif self.path == "/api/wallpaper":
                 self.handle_wallpaper_upload()
             else:
