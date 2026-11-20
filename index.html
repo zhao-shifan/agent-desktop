@@ -392,6 +392,18 @@ body::before{
   color:var(--faint);font-size:15px;padding:2px;line-height:1;
 }
 .key-eye:hover{color:var(--accent2)}
+.tab-btn{
+  flex:1;padding:9px;border-radius:10px;border:1px solid var(--line);background:var(--panel);
+  color:var(--dim);cursor:pointer;font-size:13px;font-family:var(--sans);transition:.2s;
+}
+.tab-btn.on{background:var(--accent-dim);color:var(--accent2);border-color:rgba(226,184,87,.35)}
+.wall-thumb{
+  position:relative;border-radius:10px;overflow:hidden;cursor:pointer;aspect-ratio:9/16;
+  border:2px solid transparent;transition:.15s;
+}
+.wall-thumb:hover{transform:translateY(-2px);border-color:var(--accent)}
+.wall-thumb.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.wall-thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .steps-box{
   border:1px solid rgba(226,184,87,.28);border-radius:14px;padding:14px 16px;margin-bottom:16px;
   background:linear-gradient(135deg,var(--accent-dim),transparent);
@@ -636,7 +648,12 @@ body::before{
       <h3>主题外观</h3>
       <button class="x-close" onclick="$('themeOverlay').classList.remove('show')">✕</button>
     </div>
-    <p class="sub">深色护眼 / 浅色清新，点即生效，自动记住你的选择。</p>
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button class="tab-btn on" data-tab="theme" onclick="switchThemeTab('theme',this)">🎨 主题动效</button>
+      <button class="tab-btn" data-tab="wall" onclick="switchThemeTab('wall',this)">🖼️ 专属壁纸库</button>
+    </div>
+    <div id="tab-theme">
+    <p class="sub">点选即生效并自动关闭，动态背景特效随主题变化。也可上传自定义背景图。</p>
     <div class="theme-grid" id="themeGrid"></div>
     <div style="display:flex;gap:10px;margin-top:16px">
       <button class="btn-ghost" style="flex:1" onclick="pickBgImage()">🖼️ 自定义背景图</button>
@@ -644,6 +661,25 @@ body::before{
     </div>
     <input type="file" id="bgFileInput" accept="image/*" hidden>
     <p style="font-size:11px;color:var(--faint);margin-top:8px">自定义背景图会自动压缩适配，叠加半透明暗化层保证文字可读，动态特效继续叠加显示</p>
+    </div>
+    <div id="tab-wall" style="display:none">
+      <p class="sub">「权时宪 & 张志安」专属壁纸库 · 26 张 × 3 种风格。点击设为背景；开启「照片漂浮」后壁纸会化作照片卡从顶部缓缓飘落。</p>
+      <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:12px;color:var(--dim)">风格：</span>
+        <select id="wallVer" class="prov-select" style="width:auto;padding:8px 32px 8px 12px;font-size:12.5px" onchange="renderWallpapers()">
+          <option value="">清晰原味</option>
+          <option value="-dark">暗化 · 深色主题友好</option>
+          <option value="-blur">模糊景深 · 高级感</option>
+        </select>
+        <button class="btn-key" style="margin:0 0 0 auto" onclick="togglePhotoRain()" id="photoRainBtn">🎬 照片漂浮：关</button>
+      </div>
+      <div id="wallGrid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-height:46vh;overflow-y:auto"></div>
+      <div style="display:flex;gap:10px;margin-top:12px">
+        <button class="btn-ghost" style="flex:1" onclick="pickWallUpload()">📤 上传新照片进库（png/jpg/截图均可）</button>
+        <input type="file" id="wallUploadInput" accept="image/*" hidden>
+      </div>
+      <p style="font-size:11px;color:var(--faint);margin-top:6px">上传后自动裁剪截图状态栏，并生成清晰/暗化/模糊三版本入库，同时更新照片漂浮素材</p>
+    </div>
   </div>
 </div>
 <script>
@@ -1430,6 +1466,67 @@ function resetBgImage(){
 }
 $("#customBg") && null;
 
+/* ================= 专属壁纸库 & 照片漂浮 ================= */
+let WALL_COUNT = 26;
+let photoRainOn = localStorage.getItem("aria.photoRain") === "1";
+async function refreshWallCount(){
+  try{
+    const r = await fetch("/api/wallpapers");
+    const d = await r.json();
+    if(d.count) WALL_COUNT = d.count;
+  }catch(e){}
+}
+function switchThemeTab(tab, btn){
+  document.querySelectorAll(".tab-btn").forEach(b=>b.classList.toggle("on", b===btn));
+  $("tab-theme").style.display = tab==="theme" ? "" : "none";
+  $("tab-wall").style.display = tab==="wall" ? "" : "none";
+  if(tab==="wall"){ refreshWallCount().then(renderWallpapers); }
+}
+function renderWallpapers(){
+  const ver = ($("wallVer")||{}).value || "";
+  const grid = $("wallGrid"); if(!grid) return;
+  let html = "";
+  for(let i=1;i<=WALL_COUNT;i++){
+    const src = `/wallpapers/wp${String(i).padStart(2,"0")}${ver}.jpg`;
+    html += `<div class="wall-thumb" onclick="applyWallpaper('${src}')" title="设为背景">
+      <img src="${src}" loading="lazy" alt="壁纸${i}">
+    </div>`;
+  }
+  grid.innerHTML = html;
+}
+async function applyWallpaper(src){
+  setStatus("正在应用壁纸…");
+  try{
+    const blob = await (await fetch(src)).blob();
+    const data = await new Promise(res=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.readAsDataURL(blob); });
+    try{ localStorage.setItem("aria.bgImage", data); }catch(err){ setStatus("存储空间不足，试试换「模糊景深」版本（文件更小）", true); return; }
+    applyCustomBg();
+    setStatus("壁纸已应用 ✅");
+  }catch(e){ setStatus("应用失败："+e.message, true); }
+}
+function togglePhotoRain(){
+  photoRainOn = !photoRainOn;
+  localStorage.setItem("aria.photoRain", photoRainOn ? "1":"0");
+  $("photoRainBtn").textContent = photoRainOn ? "🎬 照片漂浮：开" : "🎬 照片漂浮：关";
+  if(window.__applyBGEffect) window.__applyBGEffect(localStorage.getItem("aria.theme")||"", photoRainOn);
+}
+function pickWallUpload(){ $("wallUploadInput").click(); }
+$("wallUploadInput").addEventListener("change", async e=>{
+  const f = e.target.files[0]; e.target.value=""; if(!f) return;
+  setStatus(`正在处理 ${f.name}（裁剪+三版本入库）…`);
+  try{
+    const buf = await f.arrayBuffer();
+    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+    const r = await fetch("/api/wallpaper",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({name:f.name, data:b64})});
+    const d = await r.json();
+    if(d.error){ setStatus(d.error, true); return; }
+    WALL_COUNT = d.count;
+    renderWallpapers();
+    setStatus(`已入库：${d.name}（现在共 ${d.count} 张壁纸）✅`);
+  }catch(err){ setStatus("上传失败："+err.message, true); }
+});
+
 /* ================= 动态特效引擎挂载点（实际引擎定义在下方 IIFE） ================= */
 (function(){
   const cv = document.getElementById("meteors"), ctx = cv.getContext("2d");
@@ -1543,6 +1640,17 @@ $("#customBg") && null;
         ctx.fillStyle = g;
         ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,7); ctx.fill(); break;
       }
+      case "photo": {
+        if(!p.img.complete || !p.img.naturalWidth) break;
+        const w = 130*p.scale, h = w * p.img.naturalHeight/p.img.naturalWidth;
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.translate(p.x + Math.sin(p.phase)*p.sway*.5, p.y);
+        ctx.rotate(p.rot + Math.sin(p.phase)*.08);
+        ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = 14; ctx.shadowOffsetY = 6;
+        ctx.drawImage(p.img, -w/2, -h/2, w, h);
+        ctx.restore(); break;
+      }
     }
   }
 
@@ -1568,6 +1676,10 @@ $("#customBg") && null;
         if(p.y < -5){ p.y = H+5; p.x = R(0,W); } return true;
       case "cloud": p.y += p.vy;
         if(p.y < -p.r){ p.y = H + p.r; p.x = R(0,W); } return true;
+      case "photo":
+        p.y += p.vy; p.rot += p.vr; p.phase += .012;
+        if(p.y > H + 150){ p.y = -150; p.x = R(0,W); }
+        return true;
     }
   }
 
@@ -1577,9 +1689,26 @@ $("#customBg") && null;
     raf = requestAnimationFrame(tick);
   }
 
-  // 主题切换时重建特效
-  window.__applyBGEffect = function(theme){ if(raf) cancelAnimationFrame(raf); resize(); build(theme); tick(); };
-  window.__applyBGEffect(localStorage.getItem("aria.theme")||"");
+  // 主题切换时重建特效（photoRain=true 时切换为照片漂浮模式）
+  const photoImgs = [];
+  for(let i=1;i<=8;i++){
+    const im = new Image(); im.src = `/wallpapers/card${i}.jpg`; photoImgs.push(im);
+  }
+  window.__applyBGEffect = function(theme, rain){
+    if(raf) cancelAnimationFrame(raf);
+    resize();
+    if(rain){
+      parts = [];
+      for(let i=0;i<12;i++) parts.push({
+        type:"photo", img:photoImgs[i % photoImgs.length],
+        x:R(0,W), y:R(-H,0), vy:R(.25,.7), rot:R(-.3,.3), vr:R(-.004,.004),
+        sway:R(30,80), scale:R(.55,1), alpha:R(.25,.6)
+      });
+      tick(); return;
+    }
+    build(theme); tick();
+  };
+  window.__applyBGEffect(localStorage.getItem("aria.theme")||"", localStorage.getItem("aria.photoRain")==="1");
 })();
 
 /* ================= 启动 ================= */
@@ -1599,6 +1728,7 @@ if(!cfg || !cfg.apiKey){
 }
 refreshCfg(); applyBrand(); renderSessions();
 applyCustomBg();
+if(photoRainOn){ const b=$("photoRainBtn"); if(b) b.textContent="🎬 照片漂浮：开"; }
 if(curId && curChat()) openChat(curId); else newChat();
 
 /* 首次使用引导：没配过 Key 就弹 */
