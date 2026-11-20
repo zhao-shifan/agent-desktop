@@ -121,16 +121,23 @@ body::before{
 /* ---- 侧栏 ---- */
 .sidebar{
   width:264px;flex-shrink:0;display:flex;flex-direction:column;
-  background:var(--side);backdrop-filter:blur(20px);
-  border-right:1px solid var(--line);
+  background:var(--side);backdrop-filter:blur(24px);
+  border-right:1px solid var(--line);position:relative;
 }
-.brand{padding:26px 22px 20px;border-bottom:1px solid var(--line)}
+.sidebar::after{content:"";position:absolute;top:0;bottom:0;right:-1px;width:1px;
+  background:linear-gradient(180deg,transparent,var(--accent-dim) 30%,var(--accent-dim) 70%,transparent)}
+.brand{padding:28px 22px 20px;border-bottom:1px solid var(--line);position:relative;overflow:hidden}
+.brand::before{content:"✦";position:absolute;right:18px;top:20px;color:var(--accent);opacity:.5;font-size:14px;animation:twk 3s ease-in-out infinite}
+@keyframes twk{0%,100%{opacity:.25;transform:scale(1)}50%{opacity:.7;transform:scale(1.25)}}
 .brand h1{
-  font-family:var(--serif);font-size:22px;letter-spacing:.14em;font-weight:700;
-  background:linear-gradient(120deg,var(--accent2),#f4e3bd 55%,var(--accent));
+  font-family:var(--serif);font-size:21px;letter-spacing:.16em;font-weight:700;
+  background:linear-gradient(120deg,var(--accent2),#f6e7c6 45%,var(--accent) 90%);
   -webkit-background-clip:text;background-clip:text;color:transparent;
+  text-shadow:0 0 24px rgba(226,184,87,.25);
 }
-.brand p{font-size:11px;color:var(--faint);margin-top:6px;letter-spacing:.28em;text-transform:uppercase}
+.brand p{font-size:10px;color:var(--faint);margin-top:7px;letter-spacing:.3em;text-transform:uppercase}
+.sessions{flex:1;overflow-y:auto;padding:10px 12px}
+.sess-label{font-size:10px;color:var(--faint);letter-spacing:.25em;padding:10px 8px 8px;text-transform:uppercase}
 .btn-new{
   margin:16px 16px 8px;padding:11px 16px;border-radius:12px;cursor:pointer;
   border:1px solid var(--line2);background:var(--panel);color:var(--txt);
@@ -139,15 +146,16 @@ body::before{
 }
 .btn-new:hover{border-color:var(--accent);background:var(--accent-dim);color:var(--accent2)}
 .btn-new svg{width:14px;height:14px}
-.sessions{flex:1;overflow-y:auto;padding:10px 12px}
-.sess-label{font-size:10px;color:var(--faint);letter-spacing:.25em;padding:10px 8px 8px;text-transform:uppercase}
 .sess{
   padding:10px 12px;border-radius:10px;font-size:13px;color:var(--dim);cursor:pointer;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px;
-  display:flex;align-items:center;gap:8px;transition:.15s;position:relative;
+  display:flex;align-items:center;gap:8px;transition:.18s;position:relative;
+  border:1px solid transparent;
 }
-.sess:hover{background:var(--panel);color:var(--txt)}
-.sess.active{background:var(--accent-dim);color:var(--accent2)}
+.sess::before{content:"";position:absolute;left:0;top:30%;bottom:30%;width:2px;border-radius:2px;background:var(--accent);opacity:0;transition:.2s}
+.sess:hover{background:var(--panel);color:var(--txt);transform:translateX(2px)}
+.sess.active{background:var(--accent-dim);color:var(--accent2);border-color:rgba(226,184,87,.25)}
+.sess.active::before{opacity:1}
 .sess .del{
   margin-left:auto;opacity:0;font-size:15px;color:var(--faint);padding:0 2px;
 }
@@ -396,6 +404,7 @@ body::before{
 <body>
 <button class="menu-toggle" onclick="document.querySelector('.sidebar').classList.toggle('open')">☰</button>
 <div class="aurora"><i></i><i></i><i></i></div>
+<canvas id="meteors" style="position:fixed;inset:0;z-index:0;pointer-events:none"></canvas>
 <div class="app">
   <aside class="sidebar">
     <div class="brand">
@@ -408,6 +417,9 @@ body::before{
     </button>
     <div class="sessions" id="sessions"><div class="sess-label">历史对话</div></div>
     <div class="side-foot">
+      <button class="btn-settings" onclick="openSkills()" style="margin-bottom:8px">
+        🧩 <span id="skillBtnText">技能</span>
+      </button>
       <button class="btn-settings" onclick="openThemes()" style="margin-bottom:8px">
         🎨 <span>主题外观</span>
       </button>
@@ -534,6 +546,18 @@ body::before{
 </div>
 
 <script src="/qrcode.js"></script>
+<script src="/config.local.js"></script>
+<!-- 技能中心 -->
+<div class="overlay" id="skillOverlay">
+  <div class="modal" style="width:min(620px,100%)">
+    <div class="modal-head">
+      <h3>🧩 技能中心</h3>
+      <button class="x-close" onclick="$('skillOverlay').classList.remove('show')">✕</button>
+    </div>
+    <p class="sub">点选一个技能，对话时自动按该领域的专业规范回答。再次点击可取消。技能本质是内置的专业系统提示词（与豆包/千问的智能体能力同一原理），也兼容 Claude Skills 规范的字段结构。</p>
+    <div class="theme-grid" id="skillGrid"></div>
+  </div>
+</div>
 <!-- 主题选择器 -->
 <div class="overlay" id="themeOverlay">
   <div class="modal" style="width:min(600px,100%)">
@@ -952,6 +976,12 @@ async function sendStream(){
   el.closest(".msg").querySelector(".avatar").classList.add("ai-pulse");
   let full = "";
   try{
+    const msgs = [];
+    if(activeSkill){
+      const sk = SKILLS.find(s=>s.id===activeSkill);
+      if(sk) msgs.push({role:"system", content:sk.prompt});
+    }
+    msgs.push(...history);
     const url = STANDALONE
       ? cfg.baseUrl.replace(/\/+$/,"") + "/chat/completions"
       : "/api/chat";
@@ -959,8 +989,8 @@ async function sendStream(){
       ? {"Content-Type":"application/json","Authorization":"Bearer "+(cfg.apiKey||"null")}
       : {"Content-Type":"application/json"};
     const body = STANDALONE
-      ? {model:cfg.model, messages:history, stream:true, temperature:parseFloat(cfg.temperature ?? 0.7), reasoning:cfg.reasoning||"auto"}
-      : {...cfg, messages:history};
+      ? {model:cfg.model, messages:msgs, stream:true, temperature:parseFloat(cfg.temperature ?? 0.7), reasoning:cfg.reasoning||"auto"}
+      : {...cfg, messages:msgs};
     const r = await fetch(url,{method:"POST", headers, body:JSON.stringify(body), signal:abortCtl.signal});
     if(!r.ok){
       let msg = "请求失败 ("+r.status+")";
@@ -1039,12 +1069,111 @@ function autoFetchModels(){
 $("fKey").addEventListener("input", autoFetchModels);
 $("fBase").addEventListener("change", autoFetchModels);
 
+/* ================= 技能系统 ================= */
+const SKILLS = [
+  {id:"paper", name:"📄 论文写作规范", desc:"学术论文/期刊格式，含摘要、关键词、引用规范",
+   prompt:"你是学术论文写作专家。回答遵循学术规范：1)结构含摘要、关键词、引言、正文分章节、结论、参考文献；2)语言严谨客观，避免口语；3)引用标注格式 [作者, 年份]，文末列参考文献（GB/T 7714 格式）；4)术语首次出现给出中英对照；5)数据论述需注明来源或说明为假设。"},
+  {id:"word", name:"📝 Word 报告生成", desc:"生成结构化报告，点回复下方「📄 Word」一键导出",
+   prompt:"你是专业报告撰写助手。输出遵循报告规范：1)用 Markdown 多级标题组织（# 总标题 ## 章节 ### 小节）；2)开头有摘要段；3)正文用段落+要点列表，关键数据用表格呈现；4)结尾有结论与建议章节；5)语言正式、条理清晰，可直接导出为 Word 文档使用。"},
+  {id:"ppt", name:"📊 PPT 大纲设计", desc:"按演示逻辑输出逐页大纲与讲稿要点",
+   prompt:"你是 PPT 设计顾问。按演示逻辑输出：1)每页以「第N页｜页面标题」开头；2)每页给出3-5条要点（短语化，不写长句）；3)首页为封面（主题+副标题），末页为总结/致谢；4)标注建议的图表类型（柱状图/流程图等）与视觉建议；5)整体控制在10-20页。"},
+  {id:"pdf", name:"📚 文献/PDF 精读", desc:"上传文档后按精读框架分析",
+   prompt:"你是文献精读专家。用户上传文档后，按框架分析：1)一句话概括核心结论；2)研究背景与问题；3)方法/论据梳理；4)关键数据与发现（用表格）；5)创新点与局限；6)对我方工作的启示。语言精炼，用列表和小标题组织。"},
+  {id:"translate", name:"🌍 翻译专家", desc:"中英互译，保留格式与术语",
+   prompt:"你是专业翻译。规则：1)译文忠实原意、符合目标语言表达习惯，不逐字硬译；2)保留原文的段落结构、列表、代码块与格式；3)专业术语首次出现附原文括注；4)如原文有歧义，给出两种译法并说明；5)直接输出译文，不添加解释。"},
+  {id:"code", name:"💻 代码工程师", desc:"完整可运行的代码 + 注释 + 使用说明",
+   prompt:"你是资深软件工程师。要求：1)先一句话确认理解与方案；2)给出完整可运行的代码（不省略、不写伪代码），关键处有中文注释；3)代码用规范命名和错误处理；4)代码块标注语言；5)附简要使用说明和依赖安装命令；6)如有多种方案，说明权衡后推荐一种。"},
+  {id:"data", name:"📈 数据分析师", desc:"表格数据洞察，结论用数字说话",
+   prompt:"你是数据分析专家。分析数据时：1)先说明数据概览（行列数、字段含义）；2)给出关键发现（用数字支撑，如『A类占比63%，显著高于B类的22%』）；3)发现的规律用表格对比呈现；4)指出数据质量问题（缺失/异常值）；5)给出可执行的建议，每条建议注明依据。"},
+  {id:"xiaohongshu", name:"✨ 爆款文案", desc:"小红书/朋友圈风格文案与标题",
+   prompt:"你是爆款文案写手。输出：1)3个备选标题（带emoji、制造好奇或共鸣）；2)正文300-500字，多用短句和emoji，段落间空行；3)结尾引导互动（提问式结尾）；4)附8-12个话题标签；5)语气亲切真实，像朋友分享，不像广告。"},
+];
+let activeSkill = localStorage.getItem("aria.skill") || "";
+function renderSkills(){
+  $("skillGrid").innerHTML = SKILLS.map(s=>{
+    const on = activeSkill === s.id;
+    return `<div class="theme-card ${on?"on":""}" onclick="toggleSkill('${s.id}')" style="padding:12px">
+      <span class="tcheck">✓</span>
+      <div style="font-size:14px;margin-bottom:6px">${s.name}</div>
+      <div style="font-size:11.5px;color:var(--dim);line-height:1.6">${s.desc}</div>
+    </div>`;
+  }).join("");
+  $("skillBtnText").textContent = activeSkill ? "技能·" + (SKILLS.find(s=>s.id===activeSkill)||{}).name.replace(/^\S+\s/,"") : "技能";
+}
+function toggleSkill(id){
+  activeSkill = (activeSkill === id) ? "" : id;
+  localStorage.setItem("aria.skill", activeSkill);
+  renderSkills();
+  setStatus(activeSkill ? "技能已启用：" + SKILLS.find(s=>s.id===id).name : "技能已关闭");
+}
+function openSkills(){ renderSkills(); $("skillOverlay").classList.add("show"); }
+$("skillOverlay").addEventListener("click", e=>{ /* 仅 ✕ 关闭 */ });
+
+/* ================= 动态星空：流星 + 浮尘 ================= */
+(function(){
+  const cv = document.getElementById("meteors"), ctx = cv.getContext("2d");
+  let W, H, stars = [], meteors = [];
+  function resize(){ W = cv.width = innerWidth; H = cv.height = innerHeight; }
+  addEventListener("resize", resize); resize();
+  // 浮尘微光粒子
+  for(let i=0;i<40;i++) stars.push({
+    x:Math.random()*innerWidth, y:Math.random()*innerHeight,
+    r:Math.random()*1.4+.3, s:Math.random()*.15+.04,
+    a:Math.random()*.5+.15, tw:Math.random()*Math.PI*2
+  });
+  function spawnMeteor(){
+    meteors.push({
+      x:Math.random()*W*.8+W*.2, y:-40,
+      vx:-(Math.random()*3+4), vy:Math.random()*2.5+3.5,
+      len:Math.random()*90+110, life:1
+    });
+    setTimeout(spawnMeteor, Math.random()*6000+3500);
+  }
+  setTimeout(spawnMeteor, 1200);
+  function tick(){
+    ctx.clearRect(0,0,W,H);
+    const light = document.body.dataset.theme && document.body.dataset.theme.startsWith("light");
+    const starColor = light ? "180,150,90" : "235,220,180";
+    for(const s of stars){
+      s.y += s.s; s.tw += .02;
+      if(s.y > H+5){ s.y = -5; s.x = Math.random()*W; }
+      const a = s.a * (0.6 + 0.4*Math.sin(s.tw));
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7);
+      ctx.fillStyle = `rgba(${starColor},${a.toFixed(3)})`; ctx.fill();
+    }
+    for(let i=meteors.length-1;i>=0;i--){
+      const m = meteors[i];
+      m.x += m.vx; m.y += m.vy; m.life -= .008;
+      if(m.life<=0 || m.x<-150 || m.y>H+150){ meteors.splice(i,1); continue; }
+      const g = ctx.createLinearGradient(m.x, m.y, m.x + m.len*( -m.vx/6), m.y + m.len*(-m.vy/6));
+      const c1 = light ? "188,134,46," : "242,212,146,";
+      g.addColorStop(0, `rgba(${c1}${(m.life*.9).toFixed(3)})`);
+      g.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.strokeStyle = g; ctx.lineWidth = 1.6; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(m.x, m.y);
+      ctx.lineTo(m.x + m.len*(-m.vx/6)*-1, m.y + m.len*(-m.vy/6)*-1); ctx.stroke();
+      ctx.beginPath(); ctx.arc(m.x, m.y, 1.6, 0, 7);
+      ctx.fillStyle = `rgba(${c1}${m.life.toFixed(3)})`; ctx.fill();
+    }
+    requestAnimationFrame(tick);
+  }
+  tick();
+})();
+
 /* ================= 启动 ================= */
 const savedTheme = localStorage.getItem("aria.theme");
 if(savedTheme) document.body.dataset.theme = savedTheme;
 if(STANDALONE){
   const qb=$("qrBtn"); if(qb) qb.style.display="none";
   const note=$("composerNote"); if(note) note.textContent="支持文档 / 图片 · 独立模式";
+}
+/* 开箱即用：无配置时默认接入免费模型（Key 来自本机私有配置，不会上传） */
+if(!cfg || !cfg.apiKey){
+  if(window.LOCAL_DEFAULT_KEY && !STANDALONE){
+    cfg = { baseUrl:"https://open.bigmodel.cn/api/paas/v4", apiKey:window.LOCAL_DEFAULT_KEY,
+            model:"glm-4-flash", temperature:"0.7", reasoning:"auto", appName:cfg?.appName||"" };
+    localStorage.setItem("aria.cfg", JSON.stringify(cfg));
+  }
 }
 refreshCfg(); applyBrand(); renderSessions();
 if(curId && curChat()) openChat(curId); else newChat();
