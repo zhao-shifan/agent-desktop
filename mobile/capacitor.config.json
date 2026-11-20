@@ -10,6 +10,9 @@
     "androidScheme": "https"
   },
   "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    },
     "SplashScreen": {
       "launchShowDuration": 600,
       "backgroundColor": "#0c0c0e",
