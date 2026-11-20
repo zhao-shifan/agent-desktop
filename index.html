@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-<meta name="theme-color" content="#0c0c0e">
+<meta name="theme-color" content="#101214">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="mobile-web-app-capable" content="yes">
@@ -12,17 +12,17 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=Noto+Serif+SC:wght@500;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#0d0e11; --bg2:#17181d; --panel:rgba(255,255,255,.04);
-  --line:rgba(255,255,255,.09); --line2:rgba(255,255,255,.16);
-  --txt:#ece8df; --dim:#98938a; --faint:#676359;
-  --accent:#e2b857; --accent2:#f2d492; --accent-dim:rgba(226,184,87,.14);
-  --glow1:rgba(226,184,87,.13); --glow2:rgba(126,106,248,.08);
-  --user:#1e1f24; --mono:"SF Mono",Consolas,monospace;
+  --bg:#101214; --bg2:#181b20; --panel:rgba(255,255,255,.045);
+  --line:rgba(232,230,225,.09); --line2:rgba(232,230,225,.17);
+  --txt:#e8e6e2; --dim:#939a99; --faint:#62696b;
+  --accent:#d5492f; --accent2:#f0917a; --accent-dim:rgba(213,73,47,.13);
+  --glow1:rgba(213,73,47,.10); --glow2:rgba(86,140,160,.08);
+  --user:#1d2126; --mono:"SF Mono",Consolas,monospace;
   --sans:"Space Grotesk","PingFang SC","Microsoft YaHei",sans-serif;
   --serif:"Noto Serif SC","Songti SC",serif;
-  --side:rgba(13,14,17,.74); --composer:rgba(23,24,29,.75);
+  --side:rgba(14,16,18,.78); --composer:rgba(22,25,29,.78);
   --bubble:rgba(255,255,255,.04); --chip:rgba(255,255,255,.08);
-  --codebg:#121318; --scrim:rgba(8,8,10,.62);
+  --codebg:#14171b; --scrim:rgba(6,7,8,.66);
   --grain-op:.06;
 }
 /* ---- 浅色主题 ---- */
@@ -106,7 +106,7 @@ body::before{
 }
 /* 动感极光层 */
 .aurora{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
-.aurora i{position:absolute;border-radius:50%;filter:blur(90px);opacity:.6;
+.aurora i{position:absolute;border-radius:50%;filter:blur(90px);opacity:.45;
   animation:drift 22s ease-in-out infinite alternate}
 .aurora i:nth-child(1){width:560px;height:560px;left:8%;top:-18%;background:var(--glow1)}
 .aurora i:nth-child(2){width:460px;height:460px;right:4%;top:32%;background:var(--glow2);animation-delay:-8s;animation-duration:28s}
@@ -133,15 +133,15 @@ body::before{
 }
 .collapse-btn:hover{color:var(--accent2);border-color:var(--accent)}
 .expand-btn{
-  position:fixed;top:14px;left:14px;z-index:45;width:40px;height:40px;border-radius:13px;display:none;
-  border:1px solid rgba(226,184,87,.45);cursor:pointer;font-size:15px;
-  background:linear-gradient(135deg,rgba(38,33,24,.92),rgba(24,22,18,.92));
+  position:fixed;top:14px;left:14px;z-index:45;width:40px;height:40px;border-radius:10px;display:none;
+  border:1px solid var(--line2);cursor:pointer;font-size:15px;
+  background:var(--composer);
   color:var(--accent2);backdrop-filter:blur(12px);transition:.2s;
-  box-shadow:0 3px 16px rgba(226,184,87,.18);
+  box-shadow:0 3px 16px rgba(0,0,0,.35);
 }
 .expand-btn.show{display:flex;align-items:center;justify-content:center}
-.expand-btn:hover{transform:translateY(-1px);border-color:var(--accent);box-shadow:0 5px 22px rgba(226,184,87,.3)}
-.skill-select{border-color:rgba(226,184,87,.35);max-width:150px}
+.expand-btn:hover{transform:translateY(-1px);border-color:var(--accent);box-shadow:0 5px 22px rgba(0,0,0,.45)}
+.skill-select{border-color:var(--accent-dim);max-width:150px}
 .skill-select:hover{border-color:var(--accent)}
 .sidebar::after{content:"";position:absolute;top:0;bottom:0;right:-1px;width:1px;
   background:linear-gradient(180deg,transparent,var(--accent-dim) 30%,var(--accent-dim) 70%,transparent)}
@@ -149,11 +149,11 @@ body::before{
 .brand::before{content:"✦";position:absolute;right:18px;top:20px;color:var(--accent);opacity:.5;font-size:14px;animation:twk 3s ease-in-out infinite}
 @keyframes twk{0%,100%{opacity:.25;transform:scale(1)}50%{opacity:.7;transform:scale(1.25)}}
 .brand h1{
-  font-family:var(--serif);font-size:21px;letter-spacing:.16em;font-weight:700;
-  background:linear-gradient(120deg,var(--accent2),#f6e7c6 45%,var(--accent) 90%);
-  -webkit-background-clip:text;background-clip:text;color:transparent;
-  text-shadow:0 0 24px rgba(226,184,87,.25);
+  font-family:var(--serif);font-size:21px;letter-spacing:.14em;font-weight:700;
+  color:var(--txt);
 }
+.brand h1::after{content:"";display:inline-block;width:8px;height:8px;margin-left:10px;
+  background:var(--accent);border-radius:2px;vertical-align:baseline;margin-bottom:1px}
 .brand p{font-size:11px;color:var(--faint);margin-top:7px;letter-spacing:.2em}
 .sessions{flex:1;overflow-y:auto;padding:10px 12px}
 .sess-label{font-size:11px;color:var(--faint);padding:10px 8px 8px;letter-spacing:.05em}
@@ -173,7 +173,7 @@ body::before{
 }
 .sess::before{content:"";position:absolute;left:0;top:30%;bottom:30%;width:2px;border-radius:2px;background:var(--accent);opacity:0;transition:.2s}
 .sess:hover{background:var(--panel);color:var(--txt);transform:translateX(2px)}
-.sess.active{background:var(--accent-dim);color:var(--accent2);border-color:rgba(226,184,87,.25)}
+.sess.active{background:var(--accent-dim);color:var(--accent2);border-color:var(--accent-dim)}
 .sess.active::before{opacity:1}
 .sess .del{
   margin-left:auto;opacity:0;font-size:15px;color:var(--faint);padding:0 2px;
@@ -206,7 +206,7 @@ body::before{
 .tprev .tbar{position:absolute;left:10px;bottom:10px;right:10px;height:16px;border-radius:8px;opacity:.5}
 .tname{padding:9px 12px;font-size:12.5px;display:flex;align-items:center;justify-content:space-between;color:var(--txt)}
 .tname .badge{font-size:10px;padding:2px 8px;border-radius:99px;background:var(--accent-dim);color:var(--accent2)}
-.tcheck{position:absolute;top:8px;right:8px;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#141210;
+.tcheck{position:absolute;top:8px;right:8px;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#1c0f0b;
   display:none;align-items:center;justify-content:center;font-size:12px;font-weight:700;z-index:2}
 .theme-card.on .tcheck{display:flex}
 
@@ -226,17 +226,18 @@ body::before{
 .chat-inner{max-width:780px;margin:0 auto;padding:0 24px}
 .welcome{padding-top:9vh;text-align:center}
 .welcome .mark{
-  min-width:64px;height:64px;margin:0 auto 26px;border-radius:20px;
-  border:1px solid var(--line2);background:var(--panel);
+  min-width:64px;height:64px;margin:0 auto 26px;border-radius:8px;
+  border:2px solid var(--accent);background:var(--accent-dim);
   display:flex;align-items:center;justify-content:center;
-  font-family:var(--serif);font-size:26px;color:var(--accent2);
-  white-space:nowrap;padding:0 22px;
+  font-family:var(--serif);font-size:30px;font-weight:700;color:var(--accent2);
+  white-space:nowrap;padding:0 18px;
+  box-shadow:inset 0 0 0 3px var(--bg), inset 0 0 0 4px var(--accent-dim);
 }
 .welcome h2{font-family:var(--serif);font-size:30px;font-weight:700;letter-spacing:.06em}
 .welcome p{color:var(--dim);font-size:14px;margin-top:12px;line-height:1.9}
 .hints{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:34px}
 .hint{
-  padding:10px 18px;border-radius:999px;border:1px solid var(--line);
+  padding:10px 16px;border-radius:10px;border:1px solid var(--line);
   font-size:12.5px;color:var(--dim);cursor:pointer;transition:.2s;background:var(--panel);
 }
 .hint:hover{border-color:var(--accent);color:var(--accent2)}
@@ -248,12 +249,12 @@ body::before{
   width:34px;height:34px;border-radius:11px;flex-shrink:0;
   display:flex;align-items:center;justify-content:center;font-size:13px;font-family:var(--serif);
 }
-.msg.ai .avatar{border:1px solid rgba(217,164,65,.4);background:var(--accent-dim);color:var(--accent2)}
-.msg.user .avatar{border:1px solid var(--line2);background:var(--user);color:var(--dim)}
-.bubble{min-width:0;max-width:82%;padding:10px 14px;border-radius:14px 14px 14px 5px;
+.msg.ai .avatar{border:1px solid var(--accent);background:var(--accent-dim);color:var(--accent2);border-radius:8px}
+.msg.user .avatar{border:1px solid var(--line2);background:var(--user);color:var(--dim);border-radius:8px}
+.bubble{min-width:0;max-width:82%;padding:10px 14px;border-radius:12px 12px 12px 4px;
   background:var(--bubble);border:1px solid var(--line)}
-.msg.user .bubble{background:linear-gradient(135deg,#242019,#1c1a16);border-color:rgba(217,164,65,.22);
-  border-radius:14px 14px 5px 14px;padding:8px 13px}
+.msg.user .bubble{background:var(--user);border-color:var(--line2);
+  border-radius:12px 12px 4px 12px;padding:8px 13px}
 .msg .who{display:none}
 /* 消息操作条：悬浮在气泡外下方（豆包式），悬停才展开不占位 */
 .msg-actions{
@@ -271,7 +272,7 @@ body::before{
 .act:hover{color:var(--accent2);background:var(--accent-dim)}
 .act svg{width:12px;height:12px}
 .content{font-size:14.5px;line-height:1.95;color:var(--txt);word-break:break-word}
-.msg.user .content{color:#cfccc4}
+.msg.user .content{color:var(--txt)}
 .content p{margin-bottom:.7em}
 .content p:last-child{margin-bottom:0}
 .content code{
@@ -282,7 +283,7 @@ body::before{
   background:var(--codebg);border:1px solid var(--line);border-radius:12px;
   padding:14px 16px;overflow-x:auto;margin:.8em 0;
 }
-.content pre code{background:none;padding:0;color:#d8d5cd;font-size:12.5px;line-height:1.7}
+.content pre code{background:none;padding:0;color:var(--txt);font-size:12.5px;line-height:1.7}
 .content ul,.content ol{padding-left:1.4em;margin:.5em 0}
 .content li{margin:.25em 0}
 .content strong{color:var(--accent2)}
@@ -305,11 +306,11 @@ body::before{
 /* ---- 输入区 ---- */
 .composer-wrap{padding:0 24px 26px}
 .composer{
-  max-width:780px;margin:0 auto;border-radius:18px;position:relative;
+  max-width:780px;margin:0 auto;border-radius:16px;position:relative;
   border:1px solid var(--line2);background:var(--composer);backdrop-filter:blur(16px);
   transition:border-color .2s;
 }
-.composer:focus-within{border-color:rgba(217,164,65,.55)}
+.composer:focus-within{border-color:var(--accent)}
 .composer textarea{
   width:100%;background:none;border:none;outline:none;resize:none;
   color:var(--txt);font-family:var(--sans);font-size:14px;line-height:1.5;
@@ -337,8 +338,8 @@ body::before{
 .model-select option{background:var(--bg2);color:var(--txt);font-size:13px;padding:8px}
 @media(max-width:760px){.model-select{max-width:150px;font-size:12px}}
 .btn-send{
-  width:40px;height:40px;border-radius:50%;border:none;cursor:pointer;
-  background:var(--accent);color:#141210;transition:.2s;flex-shrink:0;
+  width:40px;height:40px;border-radius:12px;border:none;cursor:pointer;
+  background:var(--accent);color:#1c0f0b;transition:.2s;flex-shrink:0;
   display:flex;align-items:center;justify-content:center;
   box-shadow:0 3px 14px var(--accent-dim);
 }
@@ -356,8 +357,8 @@ body::before{
 }
 .overlay.show{display:flex}
 .modal{
-  width:min(520px,100%);max-height:86vh;border-radius:20px;
-  border:1px solid var(--line2);background:#141418;--mbg:#141418;
+  width:min(520px,100%);max-height:86vh;border-radius:18px;
+  border:1px solid var(--line2);background:var(--bg2);--mbg:var(--bg2);
   display:flex;flex-direction:column;padding:0 26px 26px;
   animation:rise .25s ease;scrollbar-gutter:stable;
   overflow-y:auto;
@@ -413,7 +414,7 @@ body::before{
   flex:1;padding:9px;border-radius:10px;border:1px solid var(--line);background:var(--panel);
   color:var(--dim);cursor:pointer;font-size:13px;font-family:var(--sans);transition:.2s;
 }
-.tab-btn.on{background:var(--accent-dim);color:var(--accent2);border-color:rgba(226,184,87,.35)}
+.tab-btn.on{background:var(--accent-dim);color:var(--accent2);border-color:var(--accent)}
 .wall-thumb{
   position:relative;border-radius:10px;overflow:hidden;cursor:pointer;
   border:2px solid transparent;transition:.15s;height:190px;
@@ -428,7 +429,7 @@ body::before{
 .pv-actions{display:flex;gap:10px;margin-top:14px}
 .pv-actions .btn-primary,.pv-actions .btn-ghost{padding:10px}
 .steps-box{
-  border:1px solid rgba(226,184,87,.28);border-radius:14px;padding:14px 16px;margin-bottom:16px;
+  border:1px solid var(--accent-dim);border-radius:14px;padding:14px 16px;margin-bottom:16px;
   background:linear-gradient(135deg,var(--accent-dim),transparent);
 }
 .steps-box ol{margin:10px 0 0 0;padding-left:20px}
@@ -437,7 +438,7 @@ body::before{
 .btn-key{
   display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:8px 16px;border-radius:10px;
   border:none;cursor:pointer;font-size:12px;font-weight:600;font-family:var(--sans);
-  background:linear-gradient(135deg,var(--accent),var(--accent2));color:#141210;text-decoration:none;
+  background:var(--accent);color:#1c0f0b;text-decoration:none;
   transition:.2s;
 }
 .btn-key:hover{filter:brightness(1.12);transform:translateY(-1px)}
@@ -447,7 +448,7 @@ body::before{
 }
 .btn-ghost{border:1px solid var(--line2);background:none;color:var(--dim)}
 .btn-ghost:hover{color:var(--txt)}
-.btn-primary{border:none;background:linear-gradient(135deg,var(--accent),#b9862e);color:#141210;font-weight:600;letter-spacing:.06em}
+.btn-primary{border:none;background:var(--accent);color:#1c0f0b;font-weight:600;letter-spacing:.06em}
 
 /* ---- 滚动条 & 移动端 ---- */
 ::-webkit-scrollbar{width:8px;height:8px}
@@ -469,7 +470,11 @@ body::before{
 <body>
 <button class="menu-toggle" onclick="document.querySelector('.sidebar').classList.toggle('open')">☰</button>
 <button class="expand-btn" id="expandBtn" onclick="toggleSidebar()" title="展开侧边栏">»</button>
-<div id="customBg" style="display:none;position:fixed;inset:0;z-index:0;background-size:cover;background-position:center;pointer-events:none"></div>
+<div id="customBg" style="display:none;position:fixed;inset:0;z-index:0;background-size:cover;background-position:center;pointer-events:none;overflow:hidden">
+  <div class="cb-blur" style="position:absolute;inset:-50px;background-size:cover;background-position:center;filter:blur(30px) brightness(.55);display:none"></div>
+  <div class="cb-dim" style="position:absolute;inset:0;background:rgba(10,10,12,.45)"></div>
+  <img class="cb-img" style="display:none;position:absolute;inset:0;margin:auto;max-width:96%;max-height:96%;object-fit:contain;box-shadow:0 10px 60px rgba(0,0,0,.5);border-radius:6px">
+</div>
 <style>#customBg::after{content:"";position:absolute;inset:0;background:rgba(10,10,12,.45)}</style>
 <div class="aurora"><i></i><i></i><i></i></div>
 <canvas id="meteors" style="position:fixed;inset:0;z-index:0;pointer-events:none"></canvas>
@@ -502,7 +507,7 @@ body::before{
     <div class="chat" id="chat">
       <div class="chat-inner" id="chatInner">
         <div class="welcome" id="welcome">
-          <div class="mark">ARIA</div>
+          <div class="mark">凡</div>
           <h2>有什么可以帮你？</h2>
           <p>接入任意 OpenAI 兼容模型，即可开始对话。<br>支持拖入或上传 TXT / Markdown / Word / Excel / PPT / PDF / 代码文件进行问答。</p>
           <div class="hints">
@@ -702,6 +707,14 @@ body::before{
       <button class="btn-ghost" style="flex:1" onclick="pickBgImage()">🖼️ 自定义背景图</button>
       <button class="btn-ghost" style="flex:1" onclick="resetBgImage()">↺ 恢复默认背景</button>
     </div>
+    <div class="field" style="margin-top:12px">
+      <label>背景显示方式</label>
+      <select id="bgMode" class="prov-select" style="font-size:12.5px" onchange="localStorage.setItem('aria.bgMode',this.value);applyCustomBg()">
+        <option value="auto">自动（竖图在宽屏居中完整显示+模糊衬底）</option>
+        <option value="contain">居中完整显示（模糊衬底）</option>
+        <option value="cover">填满裁剪（默认）</option>
+      </select>
+    </div>
     <input type="file" id="bgFileInput" accept="image/*" hidden>
     <p style="font-size:11px;color:var(--faint);margin-top:8px">自定义背景图会自动压缩适配，叠加半透明暗化层保证文字可读，动态特效继续叠加显示</p>
     </div>
@@ -858,7 +871,7 @@ function toggleKeyEye(btn){
   btn.textContent = show ? "🙈" : "🔑";
 }
 const THEMES = [
-  {id:"", name:"鎏金墨黑", badge:"默认", prev:{bg:"linear-gradient(135deg,#17181d,#0d0e11)", glow:"rgba(226,184,87,.55)", accent:"#e2b857", bub:"#26272d", bub2:"#232019"}},
+  {id:"", name:"朱砂墨黑", badge:"默认", prev:{bg:"linear-gradient(135deg,#181b20,#101214)", glow:"rgba(213,73,47,.5)", accent:"#d5492f", bub:"#23262b", bub2:"#1d2126"}},
   {id:"ocean", name:"深海蓝", prev:{bg:"linear-gradient(135deg,#111a26,#0a0e14)", glow:"rgba(77,159,255,.55)", accent:"#4d9fff", bub:"#16202e", bub2:"#131c2a"}},
   {id:"violet", name:"赛博紫", prev:{bg:"linear-gradient(135deg,#171226,#0d0a14)", glow:"rgba(168,107,255,.55)", accent:"#a86bff", bub:"#221a33", bub2:"#1e1630"}},
   {id:"forest", name:"翡翠绿", prev:{bg:"linear-gradient(135deg,#12201a,#0a100d)", glow:"rgba(62,207,142,.5)", accent:"#3ecf8e", bub:"#18271f", bub2:"#152219"}},
@@ -1485,8 +1498,32 @@ $("skillFileInput").addEventListener("change", async e=>{
 function applyCustomBg(){
   const img = localStorage.getItem("aria.bgImage");
   const el = $("customBg");
-  if(img){ el.style.backgroundImage = `url(${img})`; el.style.display = "block"; }
-  else { el.style.display = "none"; }
+  if(!img){ el.style.display = "none"; return; }
+  const mode = localStorage.getItem("aria.bgMode") || "auto";
+  const blur = el.querySelector(".cb-blur"), im = el.querySelector(".cb-img");
+  blur.style.backgroundImage = `url(${img})`;
+  im.src = img;
+  el.style.display = "block";
+  el.style.backgroundImage = `url(${img})`;
+  if(mode === "cover"){ blur.style.display="none"; im.style.display="none"; }
+  else{
+    // 自动模式：竖图在宽屏 → 居中完整 + 模糊衬底；其余填满
+    let useContain = mode === "contain";
+    if(mode === "auto"){
+      const probe = new Image();
+      probe.onload = ()=>{
+        const portrait = probe.naturalHeight > probe.naturalWidth * 1.1;
+        const wideScreen = innerWidth > innerHeight;
+        useContain = portrait && wideScreen;
+        blur.style.display = useContain ? "block" : "none";
+        im.style.display = useContain ? "block" : "none";
+        el.style.backgroundSize = useContain ? "cover" : "cover";
+      };
+      probe.src = img;
+    } else {
+      blur.style.display = "block"; im.style.display = "block";
+    }
+  }
 }
 function pickBgImage(){ $("bgFileInput").click(); }
 $("bgFileInput").addEventListener("change", e=>{
@@ -1807,6 +1844,7 @@ if(!cfg || !cfg.apiKey){
 }
 refreshCfg(); applyBrand(); renderSessions();
 applyCustomBg();
+addEventListener("resize", ()=>{ if(localStorage.getItem("aria.bgImage")) applyCustomBg(); });
 if(photoRainOn){ const b=$("photoRainBtn"); if(b) b.textContent="🎬 照片漂浮：开"; }
 if(curId && curChat()) openChat(curId); else newChat();
 
