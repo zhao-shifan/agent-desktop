@@ -1,6 +1,7 @@
 # 运行产物 / 本地私有文件不入库
 .tmppip/
 server/libs/
+config.local.js
 __pycache__/
 *.pyc
 .DS_Store
@@ -8,3 +9,6 @@ Thumbs.db
 
 dist/
 build/
+wallpapers/
+sample_check*.jpg
+make_wallpapers.py
