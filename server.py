@@ -80,6 +80,19 @@ def extract_text(name: str, data: bytes) -> str:
         raise ValueError(f"暂不支持该文件格式: {name}")
 
 
+def wallpaper_dir():
+    d = os.path.join(ROOT, "wallpapers")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def wallpaper_count():
+    import glob
+    files = [f for f in glob.glob(os.path.join(wallpaper_dir(), "wp*.jpg"))
+             if "-" not in os.path.basename(f)]
+    return len(files)
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -119,6 +132,19 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif self.path.startswith("/wallpapers/"):
+            fname = os.path.basename(self.path)  # 防目录穿越
+            fpath = os.path.join(ROOT, "wallpapers", fname)
+            if os.path.isfile(fpath):
+                body = open(fpath, "rb").read()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "max-age=86400")
+                self.end_headers()
+                self.wfile.write(body)
+            else:
+                self._send_json({"error": "not found"}, 404)
         elif self.path == "/api/health":
             self._send_json({"ok": True})
         elif self.path == "/api/lan":
@@ -140,6 +166,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.handle_skill()
             elif self.path == "/api/verify":
                 self.handle_verify()
+            elif self.path == "/api/wallpapers":
+                self._send_json({"ok": True, "count": wallpaper_count()})
+            elif self.path == "/api/wallpaper":
+                self.handle_wallpaper_upload()
             else:
                 self._send_json({"error": "not found"}, 404)
         except (BrokenPipeError, ConnectionResetError):
@@ -260,6 +290,34 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"ok": False, "code": e.code, "error": detail})
         except Exception as e:
             self._send_json({"ok": False, "error": str(e)[:200]})
+
+    # ---------- 上传照片加入专属壁纸库 ----------
+    def handle_wallpaper_upload(self):
+        from PIL import Image, ImageFilter, ImageEnhance
+        payload = self._json_body()
+        try:
+            data = base64.b64decode(payload.get("data", ""))
+            im = Image.open(io.BytesIO(data)).convert("RGB")
+        except Exception as e:
+            self._send_json({"error": "图片解析失败: " + str(e)}, 400); return
+        # 自动裁剪手机截图状态栏（按尺寸特征判断）
+        W, H = im.size
+        if H >= 2200 and W <= 1200:
+            im = im.crop((int(W*0.06), int(H*0.124), int(W*0.94), int(H*0.832)))
+        scale = 1600 / im.height
+        if scale < 1:
+            im = im.resize((int(im.width*scale), 1600), Image.LANCZOS)
+        n = wallpaper_count() + 1
+        base = f"wp{n:02d}"
+        d = wallpaper_dir()
+        im.save(os.path.join(d, base + ".jpg"), quality=82)
+        ImageEnhance.Brightness(im).enhance(0.62).save(os.path.join(d, base + "-dark.jpg"), quality=82)
+        blur = ImageEnhance.Brightness(im.filter(ImageFilter.GaussianBlur(18))).enhance(0.8)
+        blur.save(os.path.join(d, base + "-blur.jpg"), quality=82)
+        if n <= 8:  # 漂浮卡片前8张用最新照片
+            scale2 = 360 / im.width
+            im.resize((360, int(im.height*scale2)), Image.LANCZOS).save(os.path.join(d, f"card{n}.jpg"), quality=80)
+        self._send_json({"ok": True, "count": wallpaper_count(), "name": base})
 
     # ---------- 技能包导入（zip 内 SKILL.md，Claude Skills 规范） ----------
     def handle_skill(self):
