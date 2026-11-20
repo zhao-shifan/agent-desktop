@@ -298,15 +298,16 @@ body::before{
 .round-btn svg{width:18px;height:18px}
 .composer-note{font-size:11px;color:var(--faint);margin-left:2px}
 .model-select{
-  appearance:none;-webkit-appearance:none;border:1px solid var(--line2);background:var(--panel);
-  color:var(--dim);border-radius:999px;padding:8px 26px 8px 14px;font-size:12px;font-family:var(--sans);
-  cursor:pointer;outline:none;max-width:170px;transition:.2s;
+  appearance:none;-webkit-appearance:none;border:1px solid var(--line2);background:var(--bg2);
+  color:var(--txt);border-radius:999px;padding:9px 30px 9px 15px;font-size:13px;font-family:var(--sans);
+  cursor:pointer;outline:none;max-width:210px;transition:.2s;font-weight:500;letter-spacing:.02em;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23999' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-repeat:no-repeat;background-position:right 10px center;
+  background-repeat:no-repeat;background-position:right 12px center;
 }
-.model-select:hover{color:var(--accent2);border-color:var(--accent)}
+.model-select:hover{border-color:var(--accent);background:var(--accent-dim)}
 .model-select:focus{border-color:var(--accent)}
-@media(max-width:760px){.model-select{max-width:120px;font-size:11px}}
+.model-select option{background:var(--bg2);color:var(--txt);font-size:13px;padding:8px}
+@media(max-width:760px){.model-select{max-width:150px;font-size:12px}}
 .btn-send{
   margin-left:auto;width:40px;height:40px;border-radius:50%;border:none;cursor:pointer;
   background:linear-gradient(135deg,var(--accent),var(--accent2));background-size:150% 150%;
@@ -693,22 +694,31 @@ function refreshCfg(){
   renderQuickModel();
 }
 /* 快捷模型切换 */
-const QUICK_MODELS = ["glm-4-flash","glm-5.3-flash","deepseek-chat","gpt-4o-mini","qwen-plus","moonshot-v1-8k","glm-4-plus"];
+const QUICK_MODELS = [
+  {id:"glm-4-flash",     label:"GLM-4-Flash · 快速免费",   mark:"🆓"},
+  {id:"glm-5.3-flash",   label:"GLM-5.3-Flash · 深度思考", mark:"🧠"},
+  {id:"deepseek-chat",   label:"DeepSeek-V3",              mark:"💼"},
+  {id:"deepseek-reasoner",label:"DeepSeek-R1 深度思考",    mark:"🧠"},
+  {id:"qwen-plus",       label:"通义千问 Plus",            mark:"💼"},
+  {id:"moonshot-v1-8k",  label:"Kimi 8K",                  mark:"💼"},
+  {id:"gpt-4o-mini",     label:"GPT-4o mini",              mark:"💼"},
+  {id:"glm-4-plus",      label:"GLM-4-Plus 旗舰",          mark:"💰"},
+];
 function renderQuickModel(){
   const sel = $("quickModel"); if(!sel) return;
   const cur = cfg?.model || "";
-  const list = [...new Set([cur, ...QUICK_MODELS].filter(Boolean))];
-  sel.innerHTML = list.map(m=>{
-    const tag = /flash/i.test(m) ? " 🆓" : (/plus|pro|plus/i.test(m) ? " 💰" : "");
-    return `<option value="${esc(m)}" ${m===cur?"selected":""}>${esc(m)}${tag}</option>`;
-  }).join("");
+  const list = [...QUICK_MODELS];
+  if(cur && !list.some(m=>m.id===cur)) list.unshift({id:cur, label:cur, mark:"⚙️"});
+  sel.innerHTML = list.map(m=>
+    `<option value="${esc(m.id)}" ${m.id===cur?"selected":""}>${m.mark} ${esc(m.label)}</option>`).join("");
 }
 function setQuickModel(m){
   if(!cfg) cfg = {};
   cfg.model = m;
   localStorage.setItem("aria.cfg", JSON.stringify(cfg));
   refreshCfg();
-  setStatus("已切换模型："+m);
+  const info = QUICK_MODELS.find(x=>x.id===m);
+  setStatus("已切换模型：" + (info ? info.label : m));
 }
 async function fetchModels(silent){
   const base=$("fBase").value.trim().replace(/\/+$/,""), key=$("fKey").value.trim();
