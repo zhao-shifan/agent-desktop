@@ -1091,8 +1091,140 @@ function toggleTools(){
   syncToolBtn();
   setStatus(toolsOn ? "工具已开启：可联网搜索 / 读文件 / 抓网页" : "工具已关闭：仅用模型自身知识回答");
 }
-const TOOL_ICONS = {web_search:"🔍", fetch_url:"🌐", read_file:"📄", list_dir:"📁", run_command:"⌨️"};
-const TOOL_NAMES = {web_search:"联网搜索", fetch_url:"抓取网页", read_file:"读文件", list_dir:"列目录", run_command:"执行命令"};
+const TOOL_ICONS = {web_search:"🔍", fetch_url:"🌐", read_file:"📄", list_dir:"📁", run_command:"⌨️", get_location:"📍", get_weather:"🌤"};
+const TOOL_NAMES = {web_search:"联网搜索", fetch_url:"抓取网页", read_file:"读文件", list_dir:"列目录", run_command:"执行命令", get_location:"定位", get_weather:"查天气"};
+/* ===== 独立模式（手机 / file:// / APK）也能用的工具 =====
+   没有本地服务，所以只能走「允许跨域」的公开接口：
+   - 搜索 / 抓网页 → r.jina.ai 转发（带 CORS）
+   - 天气 → Open-Meteo（CORS *）
+   - 定位 → ipwho.is（CORS *） */
+const STANDALONE_TOOL_DEFS = [
+  {type:"function", function:{name:"web_search",
+    description:"联网搜索最新信息，返回标题/链接/摘要。需要查证实时内容时使用。",
+    parameters:{type:"object", properties:{query:{type:"string"}}, required:["query"]}}},
+  {type:"function", function:{name:"fetch_url",
+    description:"抓取指定网页的正文纯文本。",
+    parameters:{type:"object", properties:{url:{type:"string"}}, required:["url"]}}},
+  {type:"function", function:{name:"get_weather",
+    description:"查询当前天气与未来几天预报。city 留空则按 IP 定位。",
+    parameters:{type:"object", properties:{city:{type:"string"}, days:{type:"integer"}}}}},
+  {type:"function", function:{name:"get_location",
+    description:"按出口 IP 粗略判断用户所在城市。", parameters:{type:"object", properties:{}}}},
+];
+async function standaloneTool(name, args){
+  try{
+    if(name === "web_search"){
+      const q = encodeURIComponent(args.query || "");
+      // DuckDuckGo 的结果对转发更友好；失败再退回 Bing
+      try{
+        const r1 = await fetch("https://r.jina.ai/https://html.duckduckgo.com/html/?q=" + q);
+        const t1 = await r1.text();
+        if(t1 && t1.length > 200 && !/captcha|blocked/i.test(t1)) return t1.slice(0, 6000);
+      }catch(e){}
+      const r = await fetch("https://r.jina.ai/https://cn.bing.com/search?q=" + q + "&setlang=zh-CN");
+      const t = await r.text();
+      return t.slice(0, 6000) || "（没有结果）";
+    }
+    if(name === "fetch_url"){
+      const r = await fetch("https://r.jina.ai/" + (args.url || ""));
+      const t = await r.text();
+      return t.slice(0, 12000) || "（没有正文）";
+    }
+    if(name === "get_weather"){
+      let lat = args.lat, lon = args.lon, place = args.city || "";
+      if(!lat && place){
+        const g = await (await fetch("https://geocoding-api.open-meteo.com/v1/search?count=1&language=zh&format=json&name=" + encodeURIComponent(place))).json();
+        const hit = (g.results || [])[0];
+        if(!hit) return "找不到城市：" + place;
+        lat = hit.latitude; lon = hit.longitude; place = hit.name + "（" + (hit.country || "") + "）";
+      }
+      if(!lat){
+        const l = await standaloneTool("get_location", {});
+        const m = /lat[^\d-]*(-?\d+\.?\d*)[\s\S]*?lon[^\d-]*(-?\d+\.?\d*)/i.exec(l || "");
+        if(!m) return "定位失败，请直接给城市名";
+        lat = m[1]; lon = m[2]; place = "当前位置";
+      }
+      const days = Math.min(7, Math.max(1, args.days || 3));
+      const u = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+        `&current=temperature_2m,weather_code,apparent_temperature,relative_humidity_2m` +
+        `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max` +
+        `&timezone=auto&forecast_days=${days}`;
+      const d = await (await fetch(u)).json();
+      const c = d.current || {}, dl = d.daily || {};
+      const W = {0:"晴",1:"晴间多云",2:"多云",3:"阴",45:"雾",51:"毛毛雨",61:"小雨",63:"中雨",65:"大雨",71:"小雪",73:"中雪",75:"大雪",80:"阵雨",95:"雷阵雨"};
+      let out = `${place} 现在：${W[c.weather_code] || "未知"}，${c.temperature_2m}℃，体感 ${c.apparent_temperature}℃，湿度 ${c.relative_humidity_2m}%\n`;
+      (dl.time || []).forEach((day, i) => {
+        out += `${day}：${W[(dl.weather_code || [])[i]] || "未知"}，${(dl.temperature_2m_min||[])[i]}~${(dl.temperature_2m_max||[])[i]}℃，降水概率 ${(dl.precipitation_probability_max||[])[i]}%\n`;
+      });
+      return out;
+    }
+    if(name === "get_location"){
+      let d = null, raw = "";
+      try{ d = await (await fetch("https://ipwho.is/")).json(); }catch(e){}
+      if(!d || !d.success){
+        // 直连被限流/被墙时，用 r.jina.ai 转发（它带 CORS）
+        try{
+          raw = await (await fetch("https://r.jina.ai/https://ipwho.is/")).text();
+          const m = raw.match(/\{[\s\S]*\}/);
+          if(m){ d = JSON.parse(m[0]); }
+        }catch(e){}
+      }
+      if(d && d.success){
+        return `IP 定位（精度到城市）：\n城市：${d.city}\n省份：${d.region}\n国家：${d.country}\nlat=${d.latitude}\nlon=${d.longitude}`;
+      }
+      return "定位失败（接口限流或被代理拦截），请直接告诉我城市";
+    }
+    return "未知工具：" + name;
+  }catch(e){
+    return "工具执行失败：" + e.message;
+  }
+}
+/* 独立模式（手机/APK）：前端自己跑 function-calling 循环 */
+async function standaloneChatWithTools(msgs, el, toolLog){
+  const hist = msgs.slice();
+  let full = "";
+  const endpoint = String(cfg.baseUrl || "").replace(/\/+$/, "") + "/chat/completions";
+  for(let round = 0; round < 4; round++){
+    const r = await fetch(endpoint, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (cfg.apiKey || "")},
+      body: JSON.stringify({
+        model: cfg.model, messages: hist,
+        temperature: parseFloat(cfg.temperature ?? 0.7),
+        tools: STANDALONE_TOOL_DEFS, tool_choice: "auto"
+      }),
+      signal: abortCtl.signal
+    });
+    if(!r.ok){
+      const t = await r.text();
+      throw new Error("请求失败 (" + r.status + ") " + t.slice(0, 200));
+    }
+    const d = await r.json();
+    const msg = (d.choices && d.choices[0] && d.choices[0].message) || {};
+    const calls = msg.tool_calls || [];
+    if(!calls.length){
+      full = msg.content || "";
+      break;
+    }
+    hist.push({role: "assistant", content: msg.content || "", tool_calls: calls});
+    for(const tc of calls){
+      const nm = (tc.function || {}).name;
+      let args = {};
+      try{ args = JSON.parse((tc.function || {}).arguments || "{}"); }catch(e){}
+      toolLog.push({name: nm, args: JSON.stringify(args), status: "running"});
+      setStatus((TOOL_ICONS[nm] || "🛠") + " 正在" + (TOOL_NAMES[nm] || nm) + "…");
+      el.innerHTML = toolLineHtml(toolLog) + mdRender(full);
+      scrollBottom();
+      const res = await standaloneTool(nm, args);
+      toolLog[toolLog.length - 1].status = "done";
+      hist.push({role: "tool", tool_call_id: tc.id, content: String(res).slice(0, 12000)});
+      el.innerHTML = toolLineHtml(toolLog) + mdRender(full);
+      scrollBottom();
+    }
+  }
+  if(!full) full = "（工具调用轮数达到上限，先给你目前掌握的信息）";
+  return full;
+}
 function toolLineHtml(log){
   if(!log || !log.length) return "";
   const parts = log.map(t=>{
@@ -2242,11 +2374,23 @@ async function sendStream(){
         const body = STANDALONE
           ? {model:cfg.model, messages:msgs, stream:true, temperature:parseFloat(cfg.temperature ?? 0.7), reasoning:cfg.reasoning||"auto"}
           : {...cfg, messages:msgs};
-        // 工具能力：服务模式下由 server.py 执行 function calling；独立模式（直连 API）不支持
+        const toolLog = [];
+        // 工具能力：服务模式由 server.py 执行；独立模式（手机/APK）在前端执行
         if(!STANDALONE && toolsOn){
           body.tools = true;
           body.perm = {workDir: cfg.workDir || "", searchKey: cfg.searchKey || "",
                        allowCommand: !!cfg.allowCommand};
+        }
+        if(STANDALONE && toolsOn){
+          const txt = await standaloneChatWithTools(msgs, el, toolLog);
+          full = txt;
+          for(let i = 0; i < txt.length; i += 20){
+            el.innerHTML = toolLineHtml(toolLog) + mdRender(txt.slice(0, i + 20));
+            scrollBottom();
+            await new Promise(r => setTimeout(r, 6));
+          }
+          el.innerHTML = toolLineHtml(toolLog) + mdRender(txt);
+          break;   // 独立模式工具流程结束，跳出重试循环
         }
         const r = await fetch(url,{method:"POST", headers, body:JSON.stringify(body), signal:abortCtl.signal});
         if(!r.ok){
@@ -2257,7 +2401,6 @@ async function sendStream(){
         const reader = r.body.getReader();
         const dec = new TextDecoder();
         let buf = "", think = "";
-        const toolLog = [];
         while(true){
           const {done, value} = await reader.read();
           if(done) break;
