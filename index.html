@@ -795,6 +795,7 @@ function appendMsg(role, text, animate=true){
       <div class="msg-actions">
         <button class="act" onclick="copyMsg(${idx})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>复制</button>
         <button class="act" onclick="branchMsg(${idx})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M6 9v3a3 3 0 003 3h6"/></svg>分支</button>
+        ${role==="ai" && !STANDALONE ? `<button class="act" onclick="exportDoc(${idx})">📄 Word</button>` : ""}
       </div>
     </div>`;
   $("chatInner").appendChild(div);
@@ -806,6 +807,22 @@ function copyMsg(idx){
   const m = history[idx];
   const t = typeof m.content==="string" ? m.content : m.content[0]?.text || "";
   navigator.clipboard.writeText(t).then(()=>setStatus("已复制到剪贴板"));
+}
+async function exportDoc(idx){
+  const m = history[idx];
+  const t = typeof m.content==="string" ? m.content : m.content[0]?.text || "";
+  setStatus("正在生成 Word 文档…");
+  try{
+    const r = await fetch("/api/docx",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({markdown:t, filename:"小凡智能体-"+new Date().toLocaleDateString().replace(/\//g,"-")})});
+    if(!r.ok) throw new Error("生成失败 ("+r.status+")");
+    const blob = await r.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "小凡智能体-"+Date.now()+".docx";
+    a.click(); URL.revokeObjectURL(a.href);
+    setStatus("Word 文档已生成，开始下载 ✅");
+  }catch(e){ setStatus("Word 导出失败："+e.message, true); }
 }
 function branchMsg(idx){
   const cut = history.slice(0, idx+1);
