@@ -1,4 +1,4 @@
-# -*- mode: python ; coding: utf-8 -*-
+﻿# -*- mode: python ; coding: utf-8 -*-
 
 
 a = Analysis(
@@ -6,7 +6,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[('index.html', '.'), ('qrcode.js', '.'), ('official_skills.js', '.'), ('manifest.json', '.'), ('sw.js', '.'), ('icons', 'icons'), ('wallpapers', 'wallpapers')],
-    hiddenimports=[],
+    hiddenimports=['trafilatura'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
