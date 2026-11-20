@@ -12,18 +12,18 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=Noto+Serif+SC:wght@500;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#0d0d10; --bg2:#141419; --panel:rgba(255,255,255,.035);
-  --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.14);
-  --txt:#e9e6df; --dim:#9a968c; --faint:#6b675e;
-  --accent:#d9a441; --accent2:#e8c06a; --accent-dim:rgba(217,164,65,.14);
-  --glow1:rgba(217,164,65,.10); --glow2:rgba(120,90,200,.06);
-  --user:#1d1d22; --mono:"SF Mono",Consolas,monospace;
+  --bg:#0d0e11; --bg2:#17181d; --panel:rgba(255,255,255,.04);
+  --line:rgba(255,255,255,.09); --line2:rgba(255,255,255,.16);
+  --txt:#ece8df; --dim:#98938a; --faint:#676359;
+  --accent:#e2b857; --accent2:#f2d492; --accent-dim:rgba(226,184,87,.14);
+  --glow1:rgba(226,184,87,.13); --glow2:rgba(126,106,248,.08);
+  --user:#1e1f24; --mono:"SF Mono",Consolas,monospace;
   --sans:"Space Grotesk","PingFang SC","Microsoft YaHei",sans-serif;
   --serif:"Noto Serif SC","Songti SC",serif;
-  --side:rgba(13,13,16,.72); --composer:rgba(22,22,27,.72);
-  --bubble:rgba(255,255,255,.035); --chip:rgba(255,255,255,.07);
-  --codebg:#101014; --scrim:rgba(8,8,10,.6);
-  --grain-op:.07;
+  --side:rgba(13,14,17,.74); --composer:rgba(23,24,29,.75);
+  --bubble:rgba(255,255,255,.04); --chip:rgba(255,255,255,.08);
+  --codebg:#121318; --scrim:rgba(8,8,10,.62);
+  --grain-op:.06;
 }
 /* ---- 浅色主题 ---- */
 body[data-theme="light-warm"], body[data-theme="light-cool"], body[data-theme="light-gray"], body[data-theme="mint"]{
@@ -64,6 +64,8 @@ body[data-theme="light-gray"] .field select, body[data-theme="mint"] .field sele
   background:var(--bg);color:var(--txt)}
 body[data-theme="light-warm"] .swatch.on, body[data-theme="light-cool"] .swatch.on,
 body[data-theme="light-gray"] .swatch.on, body[data-theme="mint"] .swatch.on{border-color:var(--accent)}
+body[data-theme="light-warm"] .swatch, body[data-theme="light-cool"] .swatch,
+body[data-theme="light-gray"] .swatch, body[data-theme="mint"] .swatch{background:var(--panel)}
 
 /* ---- 深色换肤 ---- */
 body[data-theme="ocean"]{--bg:#0a0e14;--bg2:#0e141d;--txt:#e2e9f2;--dim:#8b98ab;--faint:#5b6779;
@@ -160,14 +162,26 @@ body::before{
 .btn-settings:hover{color:var(--txt);border-color:var(--line2)}
 .dot{width:6px;height:6px;border-radius:50%;background:#e5735f;display:inline-block}
 .dot.ok{background:#7fce8e;box-shadow:0 0 8px rgba(127,206,142,.6)}
-.themes{display:flex;gap:6px;flex-wrap:wrap;flex:1}
-.swatch{
-  width:17px;height:17px;border-radius:50%;cursor:pointer;border:2px solid transparent;
-  transition:.2s;position:relative;
+.themes{display:none}
+/* 主题选择器 */
+.theme-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:16px}
+.theme-card{
+  border:1.5px solid var(--line);border-radius:14px;cursor:pointer;overflow:hidden;
+  transition:.2s;position:relative;background:var(--panel);
 }
-.swatch:hover{transform:scale(1.15)}
-.swatch.on{border-color:var(--txt)}
-.swatch::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--sw)}
+.theme-card:hover{transform:translateY(-2px);border-color:var(--line2)}
+.theme-card.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.tprev{height:86px;position:relative;padding:10px;overflow:hidden}
+.tprev .tdot{position:absolute;width:60px;height:60px;border-radius:50%;filter:blur(22px);top:-12px;right:-10px}
+.tprev .tbub{height:9px;border-radius:5px;margin-bottom:6px}
+.tprev .tbub.b1{width:65%;margin-right:auto}
+.tprev .tbub.b2{width:45%;margin-left:auto;opacity:.8}
+.tprev .tbar{position:absolute;left:10px;bottom:10px;right:10px;height:16px;border-radius:8px;opacity:.5}
+.tname{padding:9px 12px;font-size:12.5px;display:flex;align-items:center;justify-content:space-between;color:var(--txt)}
+.tname .badge{font-size:10px;padding:2px 8px;border-radius:99px;background:var(--accent-dim);color:var(--accent2)}
+.tcheck{position:absolute;top:8px;right:8px;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#141210;
+  display:none;align-items:center;justify-content:center;font-size:12px;font-weight:700;z-index:2}
+.theme-card.on .tcheck{display:flex}
 
 .brand h1, .welcome .mark, .welcome h2{animation:fadein 1.1s ease both}
 @keyframes fadein{from{opacity:0;transform:translateY(12px);filter:blur(6px)}to{opacity:1;transform:none;filter:none}}
@@ -215,13 +229,16 @@ body::before{
 .msg .who{font-size:10px;letter-spacing:.22em;color:var(--faint);margin-bottom:7px;text-transform:uppercase}
 .msg.user .who{color:rgba(232,192,106,.6)}
 .msg .who{display:none}
+/* 消息操作条：悬浮在气泡外下方（豆包式） */
 .msg-actions{
-  display:flex;gap:6px;margin-top:8px;opacity:0;transition:.2s;
+  display:flex;gap:8px;margin-top:6px;opacity:0;transition:.2s;height:24px;
 }
+.msg.user .msg-actions{justify-content:flex-end}
 .msg:hover .msg-actions{opacity:1}
+@media(hover:none){.msg .msg-actions{opacity:.75}}
 .act{
-  border:none;background:var(--panel);color:var(--faint);cursor:pointer;
-  font-size:11px;padding:4px 10px;border-radius:8px;transition:.15s;
+  border:none;background:transparent;color:var(--faint);cursor:pointer;
+  font-size:11px;padding:3px 9px;border-radius:8px;transition:.15s;
   display:flex;align-items:center;gap:5px;font-family:var(--sans);
 }
 .act:hover{color:var(--accent2);background:var(--accent-dim)}
@@ -280,6 +297,16 @@ body::before{
 .round-btn:hover{color:var(--accent2);border-color:var(--accent);background:var(--accent-dim);transform:rotate(90deg)}
 .round-btn svg{width:18px;height:18px}
 .composer-note{font-size:11px;color:var(--faint);margin-left:2px}
+.model-select{
+  appearance:none;-webkit-appearance:none;border:1px solid var(--line2);background:var(--panel);
+  color:var(--dim);border-radius:999px;padding:8px 26px 8px 14px;font-size:12px;font-family:var(--sans);
+  cursor:pointer;outline:none;max-width:170px;transition:.2s;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23999' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center;
+}
+.model-select:hover{color:var(--accent2);border-color:var(--accent)}
+.model-select:focus{border-color:var(--accent)}
+@media(max-width:760px){.model-select{max-width:120px;font-size:11px}}
 .btn-send{
   margin-left:auto;width:40px;height:40px;border-radius:50%;border:none;cursor:pointer;
   background:linear-gradient(135deg,var(--accent),var(--accent2));background-size:150% 150%;
@@ -306,6 +333,12 @@ body::before{
   animation:rise .25s ease;
 }
 .modal h3{font-family:var(--serif);font-size:19px;letter-spacing:.08em;margin-bottom:4px}
+.modal-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px}
+.x-close{
+  border:none;background:var(--panel);color:var(--dim);cursor:pointer;
+  width:30px;height:30px;border-radius:9px;font-size:16px;line-height:1;transition:.15s;flex-shrink:0;
+}
+.x-close:hover{color:var(--txt);background:var(--accent-dim)}
 .modal .sub{font-size:12px;color:var(--faint);margin-bottom:22px;line-height:1.7}
 .field{margin-bottom:16px}
 .field label{display:block;font-size:11px;letter-spacing:.18em;color:var(--dim);margin-bottom:7px;text-transform:uppercase}
@@ -361,12 +394,8 @@ body::before{
     </button>
     <div class="sessions" id="sessions"><div class="sess-label">历史对话</div></div>
     <div class="side-foot">
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;padding:0 2px">
-        <span style="font-size:11px;color:var(--faint);letter-spacing:.1em">🎨 换肤</span>
-        <div class="themes" id="themes"></div>
-      </div>
-      <button class="btn-settings" onclick="openQR()" style="margin-bottom:8px">
-        📱 <span>手机扫码使用</span>
+      <button class="btn-settings" onclick="openThemes()" style="margin-bottom:8px">
+        🎨 <span>主题外观</span>
       </button>
       <button class="btn-settings" onclick="openSettings()">
         <span class="dot" id="cfgDot"></span><span id="cfgText">设置 API 接入</span>
@@ -395,11 +424,12 @@ body::before{
       <div class="composer">
         <textarea id="input" rows="1" placeholder="输入你的问题… （Enter 发送 / Shift+Enter 换行）"></textarea>
         <div class="composer-bar">
-          <button class="round-btn" title="上传文件" onclick="pickFile()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          <button class="round-btn" title="上传文件（文档/表格/PDF/代码）" onclick="pickFile()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
           </button>
           <input type="file" id="fileInput" multiple hidden>
-          <span class="composer-note">文档 / 表格 / PDF / 代码 · 拖入也行</span>
+          <span class="composer-note" id="composerNote">支持文档 / 表格 / PDF / 代码</span>
+          <select id="quickModel" onchange="setQuickModel(this.value)" class="model-select" title="切换模型" style="margin-left:auto"></select>
           <button class="btn-send" id="sendBtn" onclick="onSend()" title="发送">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
           </button>
@@ -413,7 +443,10 @@ body::before{
 <!-- 设置 -->
 <div class="overlay" id="overlay">
   <div class="modal">
-    <h3>接入设置</h3>
+    <div class="modal-head">
+      <h3>接入设置</h3>
+      <button class="x-close" onclick="$('overlay').classList.remove('show')">✕</button>
+    </div>
     <p class="sub">填入任意 OpenAI 兼容接口的地址与 Key 即可使用。配置只保存在本机浏览器中，不会上传到任何服务器。</p>
     <div class="presets" id="presets"></div>
     <div class="field">
@@ -443,6 +476,17 @@ body::before{
         <option value="1">1 · 发散</option>
       </select>
     </div>
+    <div class="field">
+      <label>推理深度（深度思考）</label>
+      <select id="fReason">
+        <option value="auto" selected>跟随模型默认</option>
+        <option value="off">关闭思考 · 更快更省</option>
+        <option value="low">低 · 简单推理</option>
+        <option value="medium">中 · 均衡推理</option>
+        <option value="high">高 · 深度推理</option>
+      </select>
+      <div class="tip">深度思考适合数学/分析类问题；对支持思考的模型生效（如 GLM-5.3）</div>
+    </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="fetchModels()">获取模型列表</button>
       <button class="btn-primary" onclick="saveSettings()">保存并使用</button>
@@ -453,7 +497,10 @@ body::before{
 <!-- 扫码 -->
 <div class="overlay" id="qrOverlay">
   <div class="modal" style="text-align:center;width:min(360px,100%)">
-    <h3>手机扫码使用</h3>
+    <div class="modal-head">
+      <h3>手机扫码使用</h3>
+      <button class="x-close" onclick="$('qrOverlay').classList.remove('show')">✕</button>
+    </div>
     <p class="sub">确保手机与电脑连接同一个 WiFi，用手机相机或微信扫一扫即可打开。<br>打开后建议在浏览器菜单里「添加到主屏幕」，即可像 App 一样全屏使用。</p>
     <div id="qrBox" style="display:flex;justify-content:center;padding:10px 0 6px"></div>
     <p style="font-size:12px;color:var(--dim);margin:10px 0 4px;word-break:break-all" id="qrUrl"></p>
@@ -465,6 +512,17 @@ body::before{
 </div>
 
 <script src="/qrcode.js"></script>
+<!-- 主题选择器 -->
+<div class="overlay" id="themeOverlay">
+  <div class="modal" style="width:min(600px,100%)">
+    <div class="modal-head">
+      <h3>主题外观</h3>
+      <button class="x-close" onclick="$('themeOverlay').classList.remove('show')">✕</button>
+    </div>
+    <p class="sub">深色护眼 / 浅色清新，点即生效，自动记住你的选择。</p>
+    <div class="theme-grid" id="themeGrid"></div>
+  </div>
+</div>
 <script>
 /* ================= 状态 ================= */
 const PRESETS = [
@@ -480,9 +538,11 @@ const PRESETS = [
 let cfg = JSON.parse(localStorage.getItem("aria.cfg")||"null");
 let chats = JSON.parse(localStorage.getItem("aria.chats")||"[]");
 let curId = localStorage.getItem("aria.cur") || null;
-let attachments = [];   // {name, text}
+let attachments = [];   // {name, text, image?}
 let history = [];       // 发送给模型的消息
 let streaming = false, abortCtl = null;
+/* 统一模式：file:// 打开 = 独立模式（直连API）；经服务打开 = 完整模式（代理+文件解析+扫码） */
+const STANDALONE = location.protocol === "file:";
 
 /* ================= 工具 ================= */
 const $ = id => document.getElementById(id);
@@ -523,37 +583,51 @@ function usePreset(i){
   document.querySelectorAll(".preset").forEach((el,j)=>el.classList.toggle("on",j===i));
 }
 const THEMES = [
-  {id:"", name:"香槟金·夜", sw:"#d9a441"},
-  {id:"ocean", name:"深海蓝·夜", sw:"#4d9fff"},
-  {id:"violet", name:"赛博紫·夜", sw:"#a86bff"},
-  {id:"forest", name:"翡翠绿·夜", sw:"#3ecf8e"},
-  {id:"ember", name:"暖橘·夜", sw:"#ff7849"},
-  {id:"rose", name:"玫红·夜", sw:"#ff5c8a"},
-  {id:"light-warm", name:"奶油暖白", sw:"#f0e3c8"},
-  {id:"light-cool", name:"雾蓝浅色", sw:"#bcd4f2"},
-  {id:"light-gray", name:"极简浅灰", sw:"#dcdce2"},
-  {id:"mint", name:"薄荷浅绿", sw:"#bfe6d4"},
+  {id:"", name:"鎏金墨黑", badge:"默认", prev:{bg:"linear-gradient(135deg,#17181d,#0d0e11)", glow:"rgba(226,184,87,.55)", accent:"#e2b857", bub:"#26272d", bub2:"#232019"}},
+  {id:"ocean", name:"深海蓝", prev:{bg:"linear-gradient(135deg,#111a26,#0a0e14)", glow:"rgba(77,159,255,.55)", accent:"#4d9fff", bub:"#16202e", bub2:"#131c2a"}},
+  {id:"violet", name:"赛博紫", prev:{bg:"linear-gradient(135deg,#171226,#0d0a14)", glow:"rgba(168,107,255,.55)", accent:"#a86bff", bub:"#221a33", bub2:"#1e1630"}},
+  {id:"forest", name:"翡翠绿", prev:{bg:"linear-gradient(135deg,#12201a,#0a100d)", glow:"rgba(62,207,142,.5)", accent:"#3ecf8e", bub:"#18271f", bub2:"#152219"}},
+  {id:"ember", name:"暖橘夜", prev:{bg:"linear-gradient(135deg,#221a15,#100d0b)", glow:"rgba(255,120,73,.5)", accent:"#ff7849", bub:"#2a201a", bub2:"#241b15"}},
+  {id:"rose", name:"玫红夜", prev:{bg:"linear-gradient(135deg,#221519,#120a0f)", glow:"rgba(255,92,138,.5)", accent:"#ff5c8a", bub:"#291c22", bub2:"#231820"}},
+  {id:"light-warm", name:"奶油暖白", badge:"浅色", prev:{bg:"linear-gradient(135deg,#fffdf8,#efe7d9)", glow:"rgba(212,160,64,.6)", accent:"#b8862e", bub:"#ffffff", bub2:"#f3ecdf"}},
+  {id:"light-cool", name:"雾蓝浅色", badge:"浅色", prev:{bg:"linear-gradient(135deg,#fbfdff,#e2eaf4)", glow:"rgba(64,120,220,.55)", accent:"#2f6fd8", bub:"#ffffff", bub2:"#e9eff7"}},
+  {id:"light-gray", name:"极简浅灰", badge:"浅色", prev:{bg:"linear-gradient(135deg,#ffffff,#e8e8ec)", glow:"rgba(91,91,214,.4)", accent:"#5b5bd6", bub:"#ffffff", bub2:"#ececf0"}},
+  {id:"mint", name:"薄荷浅绿", badge:"浅色", prev:{bg:"linear-gradient(135deg,#fbfefc,#dfeee6)", glow:"rgba(20,170,110,.5)", accent:"#149a68", bub:"#ffffff", bub2:"#e7f0ea"}},
 ];
-function renderThemes(){
-  $("themes").innerHTML = THEMES.map(t=>
-    `<span class="swatch ${((localStorage.getItem("aria.theme")||"")===(t.id||""))?"on":""}" style="--sw:${t.sw}" title="${t.name}" onclick="setTheme('${t.id}')"></span>`).join("");
+function renderThemeCards(){
+  const cur = localStorage.getItem("aria.theme")||"";
+  $("themeGrid").innerHTML = THEMES.map(t=>{
+    const p = t.prev;
+    return `<div class="theme-card ${cur===t.id?"on":""}" onclick="setTheme('${t.id}')">
+      <span class="tcheck">✓</span>
+      <div class="tprev" style="background:${p.bg}">
+        <i class="tdot" style="background:${p.glow}"></i>
+        <div class="tbub b1" style="background:${p.bub}"></div>
+        <div class="tbub b2" style="background:${p.accent};opacity:.85"></div>
+        <div class="tbar" style="background:${p.bub2};border:1px solid ${p.accent}22"></div>
+      </div>
+      <div class="tname"><span>${t.name}</span>${t.badge?`<span class="badge">${t.badge}</span>`:""}</div>
+    </div>`;
+  }).join("");
 }
+function openThemes(){ renderThemeCards(); $("themeOverlay").classList.add("show"); }
 function setTheme(id){
   localStorage.setItem("aria.theme", id);
   if(id) document.body.dataset.theme=id; else delete document.body.dataset.theme;
-  renderThemes();
+  renderThemeCards();
 }
 function openSettings(){
   if(cfg){ $("fBase").value=cfg.baseUrl||""; $("fKey").value=cfg.apiKey||""; $("fModel").value=cfg.model||"";
-           $("fTemp").value=cfg.temperature??"0.7"; $("fAppName").value=cfg.appName||""; }
+           $("fTemp").value=cfg.temperature??"0.7"; $("fAppName").value=cfg.appName||"";
+           $("fReason").value=cfg.reasoning||"auto"; }
   renderPresets();
   $("overlay").classList.add("show");
 }
-$("overlay").addEventListener("click", e=>{ if(e.target===$("overlay")) $("overlay").classList.remove("show"); });
+$("overlay").addEventListener("click", e=>{ /* 只能通过 ✕ 或保存关闭，避免误触 */ });
 function saveSettings(){
   cfg = { baseUrl:$("fBase").value.trim().replace(/\/+$/,""), apiKey:$("fKey").value.trim(),
           model:$("fModel").value.trim(), temperature:$("fTemp").value,
-          appName:$("fAppName").value.trim() };
+          reasoning:$("fReason").value, appName:$("fAppName").value.trim() };
   localStorage.setItem("aria.cfg", JSON.stringify(cfg));
   refreshCfg(); applyBrand(); $("overlay").classList.remove("show");
 }
@@ -571,27 +645,49 @@ function refreshCfg(){
   const ok = cfg && cfg.baseUrl && cfg.model;
   $("cfgDot").classList.toggle("ok", !!ok);
   $("cfgText").textContent = ok ? `已接入 · ${cfg.model}` : "设置 API 接入";
+  renderQuickModel();
+}
+/* 快捷模型切换 */
+const QUICK_MODELS = ["glm-4-flash","glm-5.3-flash","deepseek-chat","gpt-4o-mini","qwen-plus","moonshot-v1-8k","glm-4-plus"];
+function renderQuickModel(){
+  const sel = $("quickModel"); if(!sel) return;
+  const cur = cfg?.model || "";
+  const list = [...new Set([cur, ...QUICK_MODELS].filter(Boolean))];
+  sel.innerHTML = list.map(m=>{
+    const tag = /flash/i.test(m) ? " 🆓" : (/plus|pro|plus/i.test(m) ? " 💰" : "");
+    return `<option value="${esc(m)}" ${m===cur?"selected":""}>${esc(m)}${tag}</option>`;
+  }).join("");
+}
+function setQuickModel(m){
+  if(!cfg) cfg = {};
+  cfg.model = m;
+  localStorage.setItem("aria.cfg", JSON.stringify(cfg));
+  refreshCfg();
+  setStatus("已切换模型："+m);
 }
 async function fetchModels(silent){
   const base=$("fBase").value.trim().replace(/\/+$/,""), key=$("fKey").value.trim();
   if(!base||!key) return;
   if(!silent) setStatus("正在获取模型列表…");
   try{
-    const r = await fetch("/api/models",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({baseUrl:base,apiKey:key})});
+    const url = STANDALONE ? base+"/models" : "/api/models";
+    const opts = STANDALONE ? {headers:{"Authorization":"Bearer "+key}}
+      : {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({baseUrl:base,apiKey:key})};
+    const r = await fetch(url, opts);
     const d = await r.json();
     if(d.error){
       if(!silent){
-        if(String(d.error).includes("404"))
+        if(String(d.error).includes("404") || r.status===404)
           setStatus("该平台不提供模型列表接口（如智谱），直接手动输入模型名即可", true);
         else setStatus(d.error, true);
       }
       return;
     }
-    $("modelList").innerHTML = d.models.map(m=>`<option value="${esc(m)}">`).join("");
-    if(d.models.length && !$("fModel").value) $("fModel").value = d.models[0];
-    if(!silent) setStatus(`获取到 ${d.models.length} 个模型`);
-    else $("fModel").placeholder = `模型（如 ${d.models[0]}）`;
+    const models = STANDALONE ? (d.data||[]).map(m=>m.id).filter(Boolean) : d.models;
+    $("modelList").innerHTML = models.map(m=>`<option value="${esc(m)}">`).join("");
+    if(models.length && !$("fModel").value) $("fModel").value = models[0];
+    if(!silent) setStatus(`获取到 ${models.length} 个模型`);
+    else $("fModel").placeholder = `模型（如 ${models[0]}）`;
   }catch(e){ if(!silent) setStatus("获取失败："+e.message, true); }
 }
 
@@ -639,12 +735,13 @@ function appendMsg(role, text, animate=true){
   div.dataset.idx = idx;
   div.innerHTML = `
     <div class="avatar">${role==="user"?"你":"小"}</div>
-    <div class="bubble">
-    <div class="content">${mdRender(text)}</div>
-    <div class="msg-actions">
-      <button class="act" onclick="copyMsg(${idx})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>复制</button>
-      <button class="act" onclick="branchMsg(${idx})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M6 9v3a3 3 0 003 3h6"/></svg>分支对话</button>
-    </div></div>`;
+    <div style="min-width:0;max-width:82%">
+      <div class="bubble"><div class="content">${mdRender(text)}</div></div>
+      <div class="msg-actions">
+        <button class="act" onclick="copyMsg(${idx})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>复制</button>
+        <button class="act" onclick="branchMsg(${idx})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M6 9v3a3 3 0 003 3h6"/></svg>分支</button>
+      </div>
+    </div>`;
   $("chatInner").appendChild(div);
   if(animate) scrollBottom();
   return div.querySelector(".content");
@@ -680,16 +777,37 @@ document.addEventListener("drop", e=>{
 async function readFile(f){
   setStatus(`正在读取 ${f.name}…`);
   const buf = await f.arrayBuffer();
-  const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const lower = f.name.toLowerCase();
   try{
-    const r = await fetch("/api/extract",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({name:f.name, data:b64})});
-    const d = await r.json();
-    if(d.error){ setStatus(d.error, true); return; }
-    attachments.push({name:f.name, text:d.text});
-    setStatus(`${f.name} 已就绪（${d.chars} 字）`);
-    renderAttachments();
+    if(/\.(png|jpe?g|webp|gif|bmp)$/.test(lower)){
+      const b64 = "data:"+(f.type||"image/png")+";base64,"+btoa(String.fromCharCode(...new Uint8Array(buf)));
+      attachments.push({name:f.name, image:b64, text:`[图片 ${f.name}]`});
+      setStatus(`${f.name} 图片已就绪（需视觉模型，如 glm-4v / qwen-vl）`);
+      renderAttachments(); return;
+    }
+    if(STANDALONE){
+      // 独立模式：文本类本地解析，Office/PDF 暂不支持
+      if(/\.(docx|pdf|xlsx|pptx)$/.test(lower)){
+        setStatus("独立模式暂不支持 "+f.name.split(".").pop().toUpperCase()+"，请通过电脑服务打开，或改传文本/图片", true); return;
+      }
+      pushText(f.name, await f.text());
+    }else{
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      const r = await fetch("/api/extract",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({name:f.name, data:b64})});
+      const d = await r.json();
+      if(d.error){ setStatus(d.error, true); return; }
+      attachments.push({name:f.name, text:d.text});
+      setStatus(`${f.name} 已就绪（${d.chars} 字）`);
+      renderAttachments();
+    }
   }catch(e){ setStatus("读取失败："+e.message, true); }
+}
+function pushText(name, text){
+  if(text.length>200000) text = text.slice(0,200000)+"\n\n[...内容过长，已截断...]";
+  attachments.push({name, text});
+  setStatus(`${name} 已就绪（${text.length} 字）`);
+  renderAttachments();
 }
 function renderAttachments(){
   $("attachments").innerHTML = attachments.map((a,i)=>
@@ -734,11 +852,16 @@ async function sendStream(){
   el.closest(".msg").querySelector(".avatar").classList.add("ai-pulse");
   let full = "";
   try{
-    const r = await fetch("/api/chat",{
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({...cfg, messages:history}),
-      signal:abortCtl.signal
-    });
+    const url = STANDALONE
+      ? cfg.baseUrl.replace(/\/+$/,"") + "/chat/completions"
+      : "/api/chat";
+    const headers = STANDALONE
+      ? {"Content-Type":"application/json","Authorization":"Bearer "+(cfg.apiKey||"null")}
+      : {"Content-Type":"application/json"};
+    const body = STANDALONE
+      ? {model:cfg.model, messages:history, stream:true, temperature:parseFloat(cfg.temperature ?? 0.7), reasoning:cfg.reasoning||"auto"}
+      : {...cfg, messages:history};
+    const r = await fetch(url,{method:"POST", headers, body:JSON.stringify(body), signal:abortCtl.signal});
     if(!r.ok){
       let msg = "请求失败 ("+r.status+")";
       try{ const d=await r.json(); if(d.error) msg=d.error; }catch(e){}
@@ -806,7 +929,10 @@ $("fBase").addEventListener("change", autoFetchModels);
 /* ================= 启动 ================= */
 const savedTheme = localStorage.getItem("aria.theme");
 if(savedTheme) document.body.dataset.theme = savedTheme;
-renderThemes();
+if(STANDALONE){
+  const qb=$("qrBtn"); if(qb) qb.style.display="none";
+  const note=$("composerNote"); if(note) note.textContent="支持文档 / 图片 · 独立模式";
+}
 refreshCfg(); applyBrand(); renderSessions();
 if(curId && curChat()) openChat(curId); else newChat();
 
@@ -817,16 +943,24 @@ async function openQR(){
     const d = await r.json();
     const url = d.url;
     $("qrUrl").textContent = url;
+    if(typeof qrcode === "undefined"){
+      await new Promise((res, rej)=>{ const s=document.createElement("script"); s.src="/qrcode.js"; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
+    }
     const qr = qrcode(0, "M");
     qr.addData(url); qr.make();
     $("qrBox").innerHTML = `<img src="${qr.createDataURL(6, 8)}" alt="QR" style="width:210px;image-rendering:pixelated;border-radius:12px;background:#fff;padding:10px">`;
     $("qrOverlay").classList.add("show");
-  }catch(e){ setStatus("生成二维码失败："+e.message, true); }
+  }catch(e){
+    $("qrBox").innerHTML = "";
+    $("qrOverlay").classList.add("show");
+    $("qrUrl").textContent = "二维码生成失败，手动在手机浏览器输入下方地址即可";
+    setStatus("二维码生成失败："+e.message, true);
+  }
 }
 function copyLan(){
   navigator.clipboard.writeText($("qrUrl").textContent).then(()=>setStatus("地址已复制"));
 }
-$("qrOverlay").addEventListener("click", e=>{ if(e.target===$("qrOverlay")) $("qrOverlay").classList.remove("show"); });
+$("qrOverlay").addEventListener("click", e=>{ /* 只通过 ✕ 关闭 */ });
 </script>
 </body>
 </html>
