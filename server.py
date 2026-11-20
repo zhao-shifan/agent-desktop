@@ -180,6 +180,14 @@ class Handler(BaseHTTPRequestHandler):
         if temperature is not None:
             upstream_body["temperature"] = float(temperature)
 
+        # 推理深度：智谱用 thinking，其他 OpenAI 兼容用 reasoning_effort
+        reasoning = payload.get("reasoning") or "auto"
+        if "bigmodel" in base:
+            if reasoning in ("off", "low", "medium", "high"):
+                upstream_body["thinking"] = {"type": "disabled" if reasoning == "off" else "enabled"}
+        elif reasoning not in ("auto", "off"):
+            upstream_body["reasoning_effort"] = reasoning
+
         req = urllib.request.Request(
             base + "/chat/completions",
             data=json.dumps(upstream_body).encode("utf-8"),
@@ -199,24 +207,35 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         # 以 SSE 透传给浏览器
+        self.close_connection = True
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
 
         try:
             for line in upstream:
+                if isinstance(line, bytes):
+                    line = line.decode("utf-8", errors="replace")
                 line = line.strip()
                 if not line:
                     continue
                 chunk = (line + "\n\n").encode("utf-8")
                 self.wfile.write(f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n")
                 self.wfile.flush()
-            self.wfile.write(b"0\r\n\r\n")
         except (BrokenPipeError, ConnectionResetError):
             pass
+        except Exception:
+            import traceback
+            traceback.print_exc()
         finally:
+            try:
+                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.flush()
+            except Exception:
+                pass
             upstream.close()
 
 
