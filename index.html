@@ -417,12 +417,18 @@ body::before{
 }
 .tab-btn.on{background:var(--accent-dim);color:var(--accent2);border-color:rgba(226,184,87,.35)}
 .wall-thumb{
-  position:relative;border-radius:10px;overflow:hidden;cursor:pointer;aspect-ratio:9/16;
-  border:2px solid transparent;transition:.15s;
+  position:relative;border-radius:10px;overflow:hidden;cursor:pointer;
+  border:2px solid transparent;transition:.15s;height:190px;
+  background:var(--bg2);display:flex;align-items:center;justify-content:center;
 }
 .wall-thumb:hover{transform:translateY(-2px);border-color:var(--accent)}
 .wall-thumb.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
-.wall-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.wall-thumb img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+/* 长图大图预览 */
+#wallPreview .pv-img-wrap{max-height:62vh;overflow-y:auto;text-align:center;border-radius:12px;background:var(--bg2)}
+#wallPreview .pv-img-wrap img{max-width:100%;display:block;margin:0 auto}
+.pv-actions{display:flex;gap:10px;margin-top:14px}
+.pv-actions .btn-primary,.pv-actions .btn-ghost{padding:10px}
 .steps-box{
   border:1px solid rgba(226,184,87,.28);border-radius:14px;padding:14px 16px;margin-bottom:16px;
   background:linear-gradient(135deg,var(--accent-dim),transparent);
@@ -612,6 +618,20 @@ body::before{
   </div>
 </div>
 
+<!-- 壁纸大图预览 -->
+<div class="overlay" id="wallPreview">
+  <div class="modal" style="width:min(430px,100%)">
+    <div class="modal-head">
+      <h3>壁纸预览</h3>
+      <button class="x-close" onclick="$('wallPreview').classList.remove('show')">✕</button>
+    </div>
+    <div class="pv-img-wrap" id="pvImgWrap"></div>
+    <div class="pv-actions">
+      <button class="btn-ghost" style="flex:1" onclick="$('wallPreview').classList.remove('show')">关闭</button>
+      <button class="btn-primary" style="flex:2" onclick="applyWallpaper(previewSrc).then(()=>$('wallPreview').classList.remove('show'))">设为背景</button>
+    </div>
+  </div>
+</div>
 <!-- 首次使用引导 -->
 <div class="overlay" id="onboardOverlay">
   <div class="modal" style="width:min(460px,100%);text-align:center">
@@ -1516,12 +1536,23 @@ function renderWallpapers(){
   let html = "";
   for(let i=1;i<=WALL_COUNT;i++){
     const src = `/wallpapers/wp${String(i).padStart(2,"0")}${ver}.jpg`;
-    html += `<div class="wall-thumb" onclick="applyWallpaper('${src}')" title="设为背景">
+    html += `<div class="wall-thumb" onclick="previewWallpaper('${src}')" title="点击预览">
       <img src="${src}" loading="lazy" alt="壁纸${i}">
     </div>`;
   }
   grid.innerHTML = html;
 }
+/* 长图预览：先看全图，再决定设为背景 */
+let previewSrc = "";
+function previewWallpaper(src){
+  previewSrc = src;
+  const wrap = document.getElementById("pvImgWrap");
+  wrap.innerHTML = `<img src="${src}" alt="预览">`;
+  wrap.scrollTop = 0;
+  $("wallPreview").classList.add("show");
+}
+$("wallPreview").addEventListener("click", e=>{ if(e.target===$("wallPreview")) $("wallPreview").classList.remove("show"); });
+
 async function applyWallpaper(src){
   setStatus("正在应用壁纸…");
   try{
