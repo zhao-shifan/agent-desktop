@@ -367,18 +367,15 @@ body::before{
 .modal > *{flex-shrink:0}
 .modal > .theme-grid, .modal > .skillGrid-wrap{flex-shrink:1}
 .modal > *{flex-shrink:0}
-.modal-head{
+.modal-fixed{
   position:sticky;top:0;z-index:3;background:var(--mbg);
-  margin:0 -26px;padding:22px 26px 0;display:flex;align-items:flex-start;justify-content:space-between;
+  margin:0 -26px;padding:22px 26px 0;flex-shrink:0;
   border-bottom:1px solid var(--line);
+}
+.modal-head{
+  display:flex;align-items:flex-start;justify-content:space-between;
 }
 .modal-head h3{padding-bottom:12px}
-.modal > .sub{
-  position:sticky;z-index:3;background:var(--mbg);
-  margin:0 -26px;padding:12px 26px 14px;
-  border-bottom:1px solid var(--line);
-  top:74px;
-}
 .modal::-webkit-scrollbar{width:10px}
 .modal::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:5px}
 .modal h3{font-family:var(--serif);font-size:19px;letter-spacing:.08em;margin-bottom:4px}
@@ -546,11 +543,13 @@ body::before{
 <!-- 设置 -->
 <div class="overlay" id="overlay">
   <div class="modal">
+    <div class="modal-fixed">
     <div class="modal-head">
       <h3>接入设置</h3>
       <button class="x-close" onclick="$('overlay').classList.remove('show')">✕</button>
     </div>
     <p class="sub">选择服务商后自动填好地址和模型，你只需粘贴对应的 API Key。配置只保存在本机浏览器，不上传任何服务器。</p>
+    </div>
     <div class="field">
       <label>🏷️ 服务商</label>
       <select id="fProvider" class="prov-select" onchange="usePreset(this.value)"></select>
@@ -662,11 +661,13 @@ body::before{
 <!-- 技能中心 -->
 <div class="overlay" id="skillOverlay">
   <div class="modal" style="width:min(620px,100%)">
+    <div class="modal-fixed">
     <div class="modal-head">
       <h3>🧩 技能中心</h3>
       <button class="x-close" onclick="$('skillOverlay').classList.remove('show')">✕</button>
     </div>
     <p class="sub">点选一个技能，对话时自动按该领域的专业规范回答。再次点击可取消。也支持导入 <b>Claude Skills 规范</b>的技能包（.zip / .md，含 frontmatter 的 SKILL.md 自动识别）。</p>
+    </div>
     <div class="theme-grid" id="skillGrid" style="grid-template-columns:repeat(2,1fr)"></div>
     <div style="display:flex;gap:10px;margin-top:16px">
       <button class="btn-ghost" style="flex:1" onclick="pickSkillFile()">📦 导入技能包（.zip / .md）</button>
@@ -686,9 +687,11 @@ body::before{
 <!-- 主题选择器 -->
 <div class="overlay" id="themeOverlay">
   <div class="modal" style="width:min(600px,100%)">
+    <div class="modal-fixed">
     <div class="modal-head">
       <h3>主题外观</h3>
       <button class="x-close" onclick="$('themeOverlay').classList.remove('show')">✕</button>
+    </div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:14px">
       <button class="tab-btn on" data-tab="theme" onclick="switchThemeTab('theme',this)">🎨 主题动效</button>
