@@ -15,7 +15,11 @@ import urllib.request
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+# 兼容 PyInstaller 打包：资源文件在临时解包目录
+if getattr(sys, "frozen", False):
+    ROOT = sys._MEIPASS
+else:
+    ROOT = os.path.dirname(os.path.abspath(__file__))
 PORT = 8765
 
 # Windows 控制台默认 GBK，统一按 UTF-8 输出避免打印崩溃
@@ -142,32 +146,57 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---------- Markdown 转 Word 下载 ----------
     def handle_docx(self):
-        import re
         payload = self._json_body()
         md = payload.get("markdown", "")
         title = (payload.get("filename") or "小凡智能体文档").strip()[:50]
 
+        body = None
+        # 首选：Pandoc 引擎 + GFM 规范（业界标准，表格/代码块/嵌套列表/任务列表全支持）
+        try:
+            import pypandoc, tempfile
+            with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tf:
+                outpath = tf.name
+            pypandoc.convert_text(md, "docx", format="gfm",
+                                  outputfile=outpath, extra_args=["--standalone"])
+            with open(outpath, "rb") as f:
+                body = f.read()
+            os.unlink(outpath)
+        except Exception:
+            import traceback
+            traceback.print_exc()
+
+        # 回退：python-docx 简易转换（无 Pandoc 环境时）
+        if not body:
+            body = self._docx_fallback(md)
+
+        import urllib.parse
+        fname_encoded = urllib.parse.quote(title + ".docx")
+        self.send_response(200)
+        self.send_header("Content-Type",
+                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        self.send_header("Content-Disposition",
+                         f"attachment; filename*=UTF-8''{fname_encoded}")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _docx_fallback(self, md):
+        import re
         import docx
-        from docx.shared import Pt, RGBColor
-        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.shared import Pt
         d = docx.Document()
         style = d.styles["Normal"]
         style.font.name = "微软雅黑"
         style.font.size = Pt(11)
-
-        lines = md.split("\n")
-        i = 0
         in_code = False
         code_buf = []
-        for raw in lines:
+        for raw in md.split("\n"):
             line = raw.rstrip()
             if line.startswith("```"):
                 if in_code:
                     p = d.add_paragraph()
-                    run = p.add_run("\n".join(code_buf))
-                    run.font.name = "Consolas"
-                    run.font.size = Pt(9)
-                    run.font.color.rgb = RGBColor(0x44, 0x44, 0x44)
+                    r = p.add_run("\n".join(code_buf))
+                    r.font.name = "Consolas"; r.font.size = Pt(9)
                     code_buf = []
                 in_code = not in_code
                 continue
@@ -188,7 +217,6 @@ class Handler(BaseHTTPRequestHandler):
             if m:
                 d.add_paragraph(m.group(1), style="List Number")
                 continue
-            # 行内加粗/代码的简易处理
             p = d.add_paragraph()
             for seg in re.split(r"(\*\*[^*]+\*\*|`[^`]+`)", line):
                 if seg.startswith("**") and seg.endswith("**"):
@@ -197,22 +225,10 @@ class Handler(BaseHTTPRequestHandler):
                     r = p.add_run(seg[1:-1]); r.font.name = "Consolas"
                 elif seg:
                     p.add_run(seg)
-
         import io
         buf = io.BytesIO()
         d.save(buf)
-        body = buf.getvalue()
-        fname = (title + ".docx").encode("utf-8").decode("latin-1")  # RFC2047-ish 简化
-        import urllib.parse
-        fname_encoded = urllib.parse.quote(title + ".docx")
-        self.send_response(200)
-        self.send_header("Content-Type",
-                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-        self.send_header("Content-Disposition",
-                         f"attachment; filename*=UTF-8''{fname_encoded}")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        return buf.getvalue()
 
     # ---------- 文件解析 ----------
     def handle_extract(self):
@@ -334,6 +350,10 @@ def main():
     print(f"  本机访问:  http://127.0.0.1:{PORT}")
     print(f"  手机访问:  http://{ip}:{PORT}   （手机需与电脑同一 WiFi，页面里有扫码入口）")
     print("  按 Ctrl+C 停止")
+    # exe / --open 模式：自动打开浏览器
+    import webbrowser, threading
+    if getattr(sys, "frozen", False) or "--open" in sys.argv:
+        threading.Timer(1.2, lambda: webbrowser.open(f"http://127.0.0.1:{PORT}")).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
