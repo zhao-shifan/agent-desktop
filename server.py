@@ -222,7 +222,13 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._send_json({"error": "not found"}, 404)
         elif self.path == "/api/health":
-            self._send_json({"ok": True})
+            try:
+                import trafilatura
+                has_traf = getattr(trafilatura, "__version__", "yes")
+            except Exception:
+                has_traf = False
+            self._send_json({"ok": True, "trafilatura": has_traf,
+                             "tools": ["web_search", "fetch_url", "read_file", "list_dir", "run_command"]})
         elif self.path == "/api/lan":
             self._send_json({"ok": True, "url": f"http://{lan_ip()}:{PORT}"})
         elif self.path == "/api/wallpapers":
@@ -739,7 +745,8 @@ def open_app_window(url):
     for exe in candidates:
         if os.path.isfile(exe):
             try:
-                subprocess.Popen([exe, f"--app={url}", "--window-size=1180,820"],
+                subprocess.Popen([exe, f"--app={url}", "--start-maximized",
+                                  "--window-size=1440,960"],
                                  close_fds=True)
                 return True
             except Exception:
