@@ -17,3 +17,5 @@ make_wallpapers.py
 _*.py
 _*.png
 _dsh_ref/
+
+_*.mjs

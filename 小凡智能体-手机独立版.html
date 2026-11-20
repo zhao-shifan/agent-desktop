@@ -1000,6 +1000,36 @@ const PRESETS = [
    ]},
 ];
 let cfg = JSON.parse(localStorage.getItem("aria.cfg")||"null");
+/* 一次性迁移：旧版本把「刚切到的模型」记在上一平台名下（记错平台），
+   导致同一个模型在两个分组里重复出现。这里按模型归属清掉串台的记录。 */
+(function migrateModelBook(){
+  if(!cfg || !cfg.modelsByUser) return;
+  const owner = m => {
+    if(/^glm/i.test(m))       return "bigmodel";
+    if(/^deepseek/i.test(m))  return "deepseek";
+    if(/^(qwen|qwq)/i.test(m))return "dashscope";
+    if(/^(moonshot|kimi)/i.test(m)) return "moonshot";
+    if(/^(gpt|o[1-4])/i.test(m))    return "openai";
+    return "";
+  };
+  const hostKey = b => {
+    if(/bigmodel/.test(b))      return "bigmodel";
+    if(/deepseek/.test(b))      return "deepseek";
+    if(/dashscope|qianwenaiapi/.test(b)) return "dashscope";
+    if(/moonshot|kimi\.com/.test(b))     return "moonshot";
+    if(/openai/.test(b))        return "openai";
+    return "";
+  };
+  let changed = false;
+  for(const b of Object.keys(cfg.modelsByUser)){
+    const hk = hostKey(b);
+    if(!hk) continue;
+    const list = cfg.modelsByUser[b] || [];
+    const keep = list.filter(m=>{ const o = owner(m); return !o || o === hk; });
+    if(keep.length !== list.length){ cfg.modelsByUser[b] = keep; changed = true; }
+  }
+  if(changed) localStorage.setItem("aria.cfg", JSON.stringify(cfg));
+})();
 let chats = JSON.parse(localStorage.getItem("aria.chats")||"[]");
 let curId = localStorage.getItem("aria.cur") || null;
 let attachments = [];   // {name, text, image?}
@@ -1417,11 +1447,30 @@ function renderQuickModel(){
     .concat(curBase && (keys[curBase] || cfg?.apiKey || curBase.includes("11434")) ? [curBase] : []))];
   if(!bases.length){ sel.innerHTML = `<option value="">未接入模型</option>`; return; }
   const host = b => { try{ return new URL(b).host; }catch(e){ return b; } };
+  // 分组标题 = 平台品牌名。不能拿“第一个同地址的预设”的名字（那是模型名，会出现「GLM-4-Flash」当平台标题）
+  const BRANDS = [
+    [/open\.bigmodel\.cn\/api\/coding\//, "智谱 GLM · Coding Plan"],
+    [/api\.z\.ai\/api\/coding\//,         "Z.ai GLM · Coding Plan"],
+    [/open\.bigmodel\.cn/,                "智谱 GLM"],
+    [/api\.deepseek\.com/,                "DeepSeek"],
+    [/coding\.dashscope\.aliyuncs\.com/,  "通义千问 · Coding Plan"],
+    [/dashscope\.aliyuncs\.com/,          "通义千问 · 百炼"],
+    [/qianwenaiapi\.com/,                 "千问AI平台"],
+    [/api\.moonshot\.cn/,                 "Kimi"],
+    [/api\.kimi\.com/,                    "Kimi · For Coding"],
+    [/api\.openai\.com/,                  "OpenAI"],
+    [/openrouter\.ai/,                    "OpenRouter"],
+    [/siliconflow\.cn/,                   "硅基流动"],
+    [/ark\.cn-beijing\.volces\.com\/api\/coding\//, "火山方舟 · Coding Plan"],
+    [/ark\.cn-beijing\.volces\.com\/api\/plan\//,   "火山方舟 · Agent Plan"],
+    [/ark\.cn-beijing\.volces\.com/,      "火山方舟"],
+    [/11434/,                             "Ollama 本地"],
+  ];
   const groupLabel = b => {
+    for(const [re, name] of BRANDS) if(re.test(b)) return name;
     const p = PRESETS.find(p=>p.base.replace(/\/+$/,"")===b);
-    if(b.includes("/coding/")) return "Zhipu GLM（Coding Plan）";
-    if(p) return p.name.replace(/^[^\w\u4e00-\u9fff]+/,"").replace(/（.*?）|\(.*?\)/g,"").trim() + (p.mark==="🆓" ? "（免费）" : "");
-    return host(b) + "（自定义）";
+    if(p) return p.name.replace(/^[^\w\u4e00-\u9fff]+/,"").replace(/（.*?）|\(.*?\)/g,"").trim();
+    return host(b);
   };
   let html = "";
   for(const b of bases){
@@ -1471,11 +1520,13 @@ function setQuickModel(m){
     setStatus("已切换模型：" + m);
   }
   cfg.model = m;
-  // 记住用户在这个平台用过的模型，保证切换后旧选项不消失
+  // 记住用户在这个平台用过的模型，保证切换后旧选项不消失。
+  // 注意：要记在「新选中的平台」名下，记在旧平台会导致模型在两个分组里重复出现。
   cfg.modelsByUser = cfg.modelsByUser || {};
-  const used = new Set(cfg.modelsByUser[curBase] || []);
+  const effBase = base || curBase;
+  const used = new Set(cfg.modelsByUser[effBase] || []);
   used.add(m);
-  cfg.modelsByUser[curBase] = [...used].slice(-10);
+  cfg.modelsByUser[effBase] = [...used].slice(-10);
   localStorage.setItem("aria.cfg", JSON.stringify(cfg));
   refreshCfg();
 }
