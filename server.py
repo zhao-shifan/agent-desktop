@@ -733,8 +733,16 @@ def lan_ip():
 
 
 def open_app_window(url):
-    """优先用 Chrome/Edge 的「应用窗口」打开：无地址栏无标签页，像一个桌面程序。"""
+    """优先用 Chrome/Edge 的「应用窗口」打开：无地址栏无标签页，默认铺满屏幕。"""
     import subprocess
+    # 按屏幕实际分辨率给一个接近全屏的窗口（Chrome 的 --start-maximized 在 app 模式下不总生效）
+    try:
+        import ctypes
+        u = ctypes.windll.user32
+        sw, sh = int(u.GetSystemMetrics(0)), int(u.GetSystemMetrics(1))
+    except Exception:
+        sw, sh = 1440, 960
+    w, h = max(960, sw - 40), max(700, sh - 100)
     candidates = [
         os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
         os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
@@ -745,8 +753,8 @@ def open_app_window(url):
     for exe in candidates:
         if os.path.isfile(exe):
             try:
-                subprocess.Popen([exe, f"--app={url}", "--start-maximized",
-                                  "--window-size=1440,960"],
+                subprocess.Popen([exe, f"--app={url}", f"--window-size={w},{h}",
+                                  "--window-position=20,40", "--start-maximized"],
                                  close_fds=True)
                 return True
             except Exception:
