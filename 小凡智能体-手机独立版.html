@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -308,6 +308,7 @@ body::before{
 @media(max-width:1180px){.msg-nav{display:none!important}}
 .welcome{padding-top:9vh;text-align:center}
 .welcome .mark{
+  display:inline-flex;align-items:center;justify-content:center;padding:0 20px;
   min-width:64px;height:64px;margin:0 auto 26px;border-radius:20px;
   border:1px solid var(--line2);background:var(--panel);
   display:flex;align-items:center;justify-content:center;
@@ -443,15 +444,16 @@ body::before{
   font-size:10.5px;color:var(--faint);padding:6px 12px 8px;border-bottom:1px solid var(--line);
   margin-bottom:4px;position:sticky;top:0;background:var(--panel);
 }
-.composer-bar{display:flex;align-items:center;padding:5px 12px 10px 12px;gap:10px}
-.bar-right{display:flex;align-items:center;gap:9px;margin-left:auto}
+.composer-bar{display:flex;align-items:center;padding:5px 12px 10px 12px;gap:10px;flex-wrap:nowrap}
+.bar-right{display:flex;align-items:center;gap:9px;margin-left:auto;flex:0 0 auto}
 .round-btn{
   width:38px;height:38px;border-radius:50%;border:1px solid var(--line2);background:var(--panel);
   color:var(--dim);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.2s;
 }
 .round-btn:hover{color:var(--accent2);border-color:var(--accent);background:var(--accent-dim);transform:rotate(90deg)}
 .round-btn svg{width:18px;height:18px}
-.composer-note{font-size:11px;color:var(--faint);margin-left:2px}
+.composer-note{font-size:11px;color:var(--faint);margin-left:2px;flex:0 1 auto;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tool-chip{
   height:30px;padding:0 11px;border-radius:9px;cursor:pointer;white-space:nowrap;
   border:1px solid var(--line2);background:var(--bg2);color:var(--dim);
@@ -613,6 +615,15 @@ body::before{
   .chat{padding-top:64px}
   .welcome{padding-top:3vh}
   .welcome h2{font-size:24px}
+}
+
+/* ===== 中等宽度（应用窗口默认尺寸）===== */
+@media(max-width:1080px){
+  .composer-wrap{padding:0 14px 14px}
+  .composer-note{display:none}
+  .model-select{max-width:150px}
+  .skill-select{max-width:118px}
+  .chat-inner{padding:0 16px}
 }
 
 /* ===== 手机端适配（390 / 360 宽度为准）===== */
@@ -1697,7 +1708,7 @@ function renderSessions(){
     .filter(c=>!q || (c.title||"").toLowerCase().includes(q))
     .slice().sort((a,b)=>(b.pinned?1:0)-(a.pinned?1:0));   // 置顶在前
   if(!shown.length){
-    box.innerHTML = `<div class="sess-label">${q?"没有匹配的会话":"历史对话"}</div>`;
+    box.innerHTML = `<div class="sess-label">${q?"没有匹配的会话":"还没有对话，上面点「新的对话」开始"}</div>`;
     return;
   }
   box.innerHTML = shown.map(c=>{
