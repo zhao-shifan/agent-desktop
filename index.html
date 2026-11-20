@@ -1542,7 +1542,7 @@ function renderWallpapers(){
   let html = "";
   for(let i=1;i<=WALL_COUNT;i++){
     const src = `/wallpapers/wp${String(i).padStart(2,"0")}${ver}.jpg`;
-    html += `<div class="wall-thumb" onclick="previewWallpaper('${src}')" title="点击预览">
+    html += `<div class="wall-thumb" onclick="applyWallpaper('${src}')" title="点击直接设为背景">
       <img src="${src}" loading="lazy" alt="壁纸${i}">
     </div>`;
   }
