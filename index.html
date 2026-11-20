@@ -250,20 +250,20 @@ body::before{
 }
 .msg.ai .avatar{border:1px solid rgba(217,164,65,.4);background:var(--accent-dim);color:var(--accent2)}
 .msg.user .avatar{border:1px solid var(--line2);background:var(--user);color:var(--dim)}
-.bubble{min-width:0;max-width:82%;padding:13px 17px;border-radius:16px 16px 16px 5px;
+.bubble{min-width:0;max-width:82%;padding:10px 14px;border-radius:14px 14px 14px 5px;
   background:var(--bubble);border:1px solid var(--line)}
 .msg.user .bubble{background:linear-gradient(135deg,#242019,#1c1a16);border-color:rgba(217,164,65,.22);
-  border-radius:16px 16px 5px 16px}
+  border-radius:14px 14px 5px 14px;padding:8px 13px}
 .msg .who{font-size:10px;letter-spacing:.22em;color:var(--faint);margin-bottom:7px;text-transform:uppercase}
 .msg.user .who{color:rgba(232,192,106,.6)}
 .msg .who{display:none}
-/* 消息操作条：悬浮在气泡外下方（豆包式） */
+/* 消息操作条：悬浮在气泡外下方（豆包式），悬停才展开不占位 */
 .msg-actions{
-  display:flex;gap:8px;margin-top:6px;opacity:0;transition:.2s;height:24px;
+  display:flex;gap:8px;margin-top:4px;opacity:0;transition:.2s;height:0;overflow:hidden;
 }
 .msg.user .msg-actions{justify-content:flex-end}
-.msg:hover .msg-actions{opacity:1}
-@media(hover:none){.msg .msg-actions{opacity:.75}}
+.msg:hover .msg-actions{opacity:1;height:24px;overflow:visible}
+@media(hover:none){.msg .msg-actions{opacity:.75;height:24px;overflow:visible}}
 .act{
   border:none;background:transparent;color:var(--faint);cursor:pointer;
   font-size:11px;padding:3px 9px;border-radius:8px;transition:.15s;
@@ -1241,7 +1241,7 @@ async function sendStream(){
     }
     const reader = r.body.getReader();
     const dec = new TextDecoder();
-    let buf = "";
+    let buf = "", think = "";
     while(true){
       const {done, value} = await reader.read();
       if(done) break;
@@ -1256,13 +1256,22 @@ async function sendStream(){
           try{
             const j = JSON.parse(data);
             const d = j.choices?.[0]?.delta || {};
-            let delta = d.content || "";
-            if(!delta && d.reasoning_content) delta = d.reasoning_content; // 思考型模型（GLM-5.3等）
-            if(delta){ full += delta; el.innerHTML = mdRender(full); scrollBottom(); setStatus(""); }
+            if(d.content){
+              full += d.content;
+              el.innerHTML = mdRender(full); scrollBottom(); setStatus("");
+            } else if(d.reasoning_content){
+              // 思考型模型：思考过程单独显示（斜体暗色），不混入正文
+              think += d.reasoning_content;
+              const tail = esc(think.slice(-100));
+              el.innerHTML = `<p style="color:var(--faint);font-style:italic;font-size:12.5px;line-height:1.7">💭 思考中…<br>${tail}</p>`;
+              scrollBottom(); setStatus("");
+            }
           }catch(e){}
         }
       }
     }
+    if(!full && think) el.innerHTML = `<p style="color:var(--faint);font-style:italic">💭（${esc(think.slice(0,300))}…）</p>`;
+    else el.innerHTML = mdRender(full || think);
     el.classList.remove("cursor");
     history.push({role:"assistant", content:full});
     const chat = curChat(); if(chat){ chat.messages = JSON.parse(JSON.stringify(history)); save(); }
