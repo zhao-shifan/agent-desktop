@@ -376,6 +376,20 @@ body::before{
   color:var(--faint);font-size:15px;padding:2px;line-height:1;
 }
 .key-eye:hover{color:var(--accent2)}
+.steps-box{
+  border:1px solid rgba(226,184,87,.28);border-radius:14px;padding:14px 16px;margin-bottom:16px;
+  background:linear-gradient(135deg,var(--accent-dim),transparent);
+}
+.steps-box ol{margin:10px 0 0 0;padding-left:20px}
+.steps-box li{font-size:12px;color:var(--dim);line-height:1.9;margin:2px 0}
+.steps-title{font-size:12px;font-weight:600;color:var(--accent2);letter-spacing:.05em}
+.btn-key{
+  display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:8px 16px;border-radius:10px;
+  border:none;cursor:pointer;font-size:12px;font-weight:600;font-family:var(--sans);
+  background:linear-gradient(135deg,var(--accent),var(--accent2));color:#141210;text-decoration:none;
+  transition:.2s;
+}
+.btn-key:hover{filter:brightness(1.12);transform:translateY(-1px)}
 .modal-actions{display:flex;gap:10px;margin-top:22px}
 .btn-ghost,.btn-primary{
   flex:1;padding:11px;border-radius:11px;cursor:pointer;font-size:13px;font-family:var(--sans);transition:.2s;
@@ -481,6 +495,7 @@ body::before{
       <select id="fProvider" class="prov-select" onchange="usePreset(this.value)"></select>
       <div class="tip" id="provTip">选择后自动填入地址与推荐模型</div>
     </div>
+    <div id="provSteps" class="steps-box" style="display:none"></div>
     <div class="field">
       <label>API 地址（Base URL）</label>
       <input id="fBase" placeholder="https://api.deepseek.com/v1">
@@ -572,17 +587,50 @@ body::before{
 <script>
 /* ================= 状态 ================= */
 const PRESETS = [
-  {name:"🆓 GLM-Flash（免费·推荐）", base:"https://open.bigmodel.cn/api/paas/v4", model:"glm-4-flash", note:"智谱开放平台 Key，flash 模型免费。不回复就换模型名 glm-5.3-flash"},
-  {name:"🆓 GLM-5.3-Flash（新一代免费）", base:"https://open.bigmodel.cn/api/paas/v4", model:"glm-5.3-flash", note:"智谱新一代免费模型"},
-  {name:"🆓 OpenRouter 免费（需注册Key）", base:"https://openrouter.ai/api/v1", model:"deepseek/deepseek-chat-v3-0324:free", note:"openrouter.ai 注册即有免费额度"},
-  {name:"🆓 Ollama 本地（完全免费无Key）", base:"http://127.0.0.1:11434/v1", model:"qwen3:8b", note:"电脑装 Ollama 后拉取模型，Key 随便填"},
-  {name:"硅基流动（注册送2000万token）", base:"https://api.siliconflow.cn/v1", model:"Qwen/Qwen2.5-7B-Instruct", note:"siliconflow.cn 注册送大额度，含免费小模型"},
-  {name:"火山引擎·豆包", base:"https://ark.cn-beijing.volces.com/api/v3", model:"doubao-seed-1-6-250615", note:"需在方舟控制台开通模型，模型名/接入点ID见控制台"},
-  {name:"DeepSeek", base:"https://api.deepseek.com/v1", model:"deepseek-chat"},
-  {name:"DeepSeek R1 深度思考", base:"https://api.deepseek.com/v1", model:"deepseek-reasoner", note:"R1 推理模型，配合推理深度设置效果更佳"},
-  {name:"OpenAI", base:"https://api.openai.com/v1", model:"gpt-4o-mini"},
-  {name:"通义千问", base:"https://dashscope.aliyuncs.com/compatible-mode/v1", model:"qwen-plus"},
-  {name:"Kimi", base:"https://api.moonshot.cn/v1", model:"moonshot-v1-8k"},
+  {name:"🆓 GLM-Flash（免费·推荐）", base:"https://open.bigmodel.cn/api/paas/v4", model:"glm-4-flash",
+   url:"https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys",
+   steps:["打开上方官网链接并登录（手机号/微信，免费）","进入「API 密钥」页面 → 点「添加新的 API Key」","点「复制」按钮拿到 Key（形如 xxxx.xxxx）","粘贴到下方 Key 输入框 → 保存即可，glm-4-flash 完全免费"],
+   note:"智谱开放平台，flash 模型完全免费不限量"},
+  {name:"🆓 GLM-5.3-Flash（新一代免费）", base:"https://open.bigmodel.cn/api/paas/v4", model:"glm-5.3-flash",
+   url:"https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys",
+   steps:["同智谱开放平台，获取 Key 步骤与 GLM-Flash 相同","模型已自动填好 glm-5.3-flash，直接保存即可"],
+   note:"智谱新一代免费模型，带深度思考"},
+  {name:"🆓 OpenRouter 免费（需注册Key）", base:"https://openrouter.ai/api/v1", model:"deepseek/deepseek-chat-v3-0324:free",
+   url:"https://openrouter.ai/settings/keys",
+   steps:["打开上方官网链接注册登录","点「Create Key」→ 复制（sk-or-... 开头）","粘贴保存即可用全部 :free 模型"],
+   note:"国外聚合平台，含多家免费模型"},
+  {name:"🆓 Ollama 本地（完全免费无Key）", base:"http://127.0.0.1:11434/v1", model:"qwen3:8b",
+   url:"https://ollama.com/download",
+   steps:["下载安装 Ollama","终端运行: ollama pull qwen3:8b 拉取模型","回到这里直接保存（Key 随便填如 ollama）"],
+   note:"完全离线免费，模型跑在自己电脑"},
+  {name:"硅基流动（注册送2000万token）", base:"https://api.siliconflow.cn/v1", model:"Qwen/Qwen2.5-7B-Instruct",
+   url:"https://cloud.siliconflow.cn/account/ak",
+   steps:["打开上方官网注册（送大额度）","左侧「API 密钥」→「新建 API 密钥」","复制粘贴保存，内置免费小模型可直接用"],
+   note:"国内平台，小模型免费"},
+  {name:"火山引擎·豆包", base:"https://ark.cn-beijing.volces.com/api/v3", model:"doubao-seed-1-6-250615",
+   url:"https://console.volcengine.com/ark",
+   steps:["打开方舟控制台并开通服务","「在线推理」→ 开通想要的模型","「API Key 管理」创建 Key","模型名用控制台显示的名称或 ep- 开头的接入点ID"],
+   note:"豆包系列，新用户送额度"},
+  {name:"DeepSeek", base:"https://api.deepseek.com/v1", model:"deepseek-chat",
+   url:"https://platform.deepseek.com/api_keys",
+   steps:["打开上方链接注册登录","「API Keys」→「创建 API Key」","复制（sk- 开头）粘贴保存"],
+   note:"性价比极高，深度思考选 deepseek-reasoner"},
+  {name:"DeepSeek R1 深度思考", base:"https://api.deepseek.com/v1", model:"deepseek-reasoner",
+   url:"https://platform.deepseek.com/api_keys",
+   steps:["同 DeepSeek，Key 通用","保存后即用 R1 深度推理"],
+   note:"R1 推理模型，配合推理深度设置效果更佳"},
+  {name:"OpenAI", base:"https://api.openai.com/v1", model:"gpt-4o-mini",
+   url:"https://platform.openai.com/api-keys",
+   steps:["需海外手机号/支付方式","登录后 Create new secret key","粘贴保存"],
+   note:"GPT 官方，国内访问需自行解决网络"},
+  {name:"通义千问", base:"https://dashscope.aliyuncs.com/compatible-mode/v1", model:"qwen-plus",
+   url:"https://bailian.console.aliyun.com/",
+   steps:["打开阿里云百炼控制台（支付宝/淘宝登录）","「API-KEY 管理」→「创建 API Key」","新用户赠送大量免费额度"],
+   note:"qwen 系列，国内大厂免费额度大"},
+  {name:"Kimi", base:"https://api.moonshot.cn/v1", model:"moonshot-v1-8k",
+   url:"https://platform.moonshot.cn/console/api-keys",
+   steps:["打开月之暗面开放平台注册","「API Key 管理」→「新建」","复制粘贴保存，注册送额度"],
+   note:"Kimi 系列，长文本见长"},
 ];
 let cfg = JSON.parse(localStorage.getItem("aria.cfg")||"null");
 let chats = JSON.parse(localStorage.getItem("aria.chats")||"[]");
@@ -631,13 +679,23 @@ function renderPresets(){
 function usePreset(i){
   i = parseInt(i);
   document.querySelectorAll(".preset").forEach(el=>el.classList.remove("on"));
+  const stepsBox = $("provSteps");
   if(i >= 0 && i < PRESETS.length){
     const p = PRESETS[i];
     $("fBase").value=p.base; $("fModel").value=p.model;
     $("provTip").textContent = p.note || "已自动填入地址与推荐模型，粘贴 Key 即可";
+    if(p.url && p.steps){
+      stepsBox.style.display = "block";
+      stepsBox.innerHTML = `<div class="steps-title">🔑 三步拿到 Key（约 1 分钟）</div>
+        <ol>${p.steps.map(s=>`<li>${esc(s)}</li>`).join("")}</ol>
+        <a class="btn-key" href="${p.url}" target="_blank">🔗 前往官网创建 Key ↗</a>`;
+    } else {
+      stepsBox.style.display = "none";
+    }
     autoFetchModels();
   } else if(i === -2){
     $("provTip").textContent = "填任何 OpenAI 兼容平台的地址（到 /v1 为止）、Key 和模型名";
+    stepsBox.style.display = "none";
   }
 }
 /* Key 显示/隐藏 */
