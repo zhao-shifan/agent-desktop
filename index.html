@@ -604,6 +604,7 @@ body::before{
 </div>
 <script src="/qrcode.js"></script>
 <script src="/config.local.js"></script>
+<script src="/official_skills.js"></script>
 <!-- 技能中心 -->
 <div class="overlay" id="skillOverlay">
   <div class="modal" style="width:min(620px,100%)">
@@ -1296,19 +1297,25 @@ const SKILLS = [
 ];
 let activeSkill = localStorage.getItem("aria.skill") || "";
 let customSkills = JSON.parse(localStorage.getItem("aria.customSkills")||"[]");
-function allSkills(){ return [...SKILLS, ...customSkills]; }
+function allSkills(){
+  // 官方技能（Anthropic skills 仓库）置顶，其次精选，最后自定义
+  const official = (window.OFFICIAL_SKILLS||[]).map(s=>({...s, name:s.name}));
+  return [...customSkills, ...official, ...SKILLS];
+}
 function renderSkills(){
   const grid = $("skillGrid");
-  grid.innerHTML = allSkills().map((s,i)=>{
+  const total = allSkills();
+  grid.innerHTML = total.map((s,i)=>{
     const on = activeSkill === s.id;
-    const del = s.custom ? `<span style="margin-left:auto;color:var(--faint);cursor:pointer" title="删除" onclick="event.stopPropagation();delCustom(${i-SKILLS.length})">✕</span>` : "";
+    const badge = s.official ? `<span class="badge" style="font-size:10px;padding:2px 8px;border-radius:99px;background:var(--accent-dim);color:var(--accent2)">官方</span>` : "";
+    const del = s.custom ? `<span style="margin-left:auto;color:var(--faint);cursor:pointer" title="删除" onclick="event.stopPropagation();delCustom(${i-SKILLS.length-(window.OFFICIAL_SKILLS||[]).length})">✕</span>` : "";
     return `<div class="theme-card ${on?"on":""}" onclick="toggleSkill('${s.id}')" style="padding:12px">
       <span class="tcheck">✓</span>
-      <div style="font-size:14px;margin-bottom:6px;display:flex;align-items:center">${s.name}${del}</div>
+      <div style="font-size:14px;margin-bottom:6px;display:flex;align-items:center;gap:6px">${s.name}${badge}${del}</div>
       <div style="font-size:11.5px;color:var(--dim);line-height:1.6">${s.desc}</div>
     </div>`;
   }).join("");
-  $("skillBtnText").textContent = activeSkill ? "技能·" + (allSkills().find(s=>s.id===activeSkill)||{}).name.replace(/^\S+\s/,"") : "技能";
+  $("skillBtnText").textContent = activeSkill ? "技能·" + (total.find(s=>s.id===activeSkill)||{}).name.replace(/^\S+\s/,"") : "技能";
   renderSkillSelect();
 }
 function renderSkillSelect(){
