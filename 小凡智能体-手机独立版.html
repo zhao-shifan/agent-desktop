@@ -704,6 +704,9 @@ body::before{
       <button class="btn-settings" onclick="openThemes()" style="margin-bottom:8px">
         🎨 <span>主题外观</span>
       </button>
+      <button class="btn-settings" id="qrBtn" onclick="openQR()" style="margin-bottom:8px">
+        📱 <span>手机扫码使用</span>
+      </button>
       <button class="btn-settings" onclick="openSettings()">
         <span class="dot" id="cfgDot"></span><span id="cfgText">设置 API 接入</span>
       </button>
@@ -1078,8 +1081,10 @@ const PRESETS = [
    note:"混元 TurboS 等，OpenAI 兼容接口"},
 ];
 let cfg = JSON.parse(localStorage.getItem("aria.cfg")||"null");
-/* ===== 工具开关（联网搜索 / 读文件 / 命令）===== */
-let toolsOn = localStorage.getItem("aria.tools") === "1";
+/* ===== 工具开关（联网搜索 / 读文件 / 命令）=====
+   默认开启：和豆包「联网」默认开着一样，用户不用每次点；点一下可关闭。
+   命令执行另有独立开关（cfg.allowCommand），不受这里影响。 */
+let toolsOn = localStorage.getItem("aria.tools") !== "0";
 function syncToolBtn(){
   const b = $("toolBtn"); if(!b) return;
   b.classList.toggle("on", toolsOn);
