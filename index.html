@@ -733,10 +733,20 @@ function usePreset(i){
   i = parseInt(i);
   document.querySelectorAll(".preset").forEach(el=>el.classList.remove("on"));
   const stepsBox = $("provSteps");
+  const tip = $("formTip"); if(tip) tip.textContent="";
   if(i >= 0 && i < PRESETS.length){
     const p = PRESETS[i];
     $("fBase").value=p.base; $("fModel").value=p.model;
     $("provTip").textContent = p.note || "已自动填入地址与推荐模型，粘贴 Key 即可";
+    // Key 按供应商独立：切到哪家显示哪家之前存过的 Key（没存过就是空）
+    const base = p.base;
+    $("fKey").value = (cfg && cfg.keyStore && cfg.keyStore[base]) || "";
+    $("fKey").type = "password";
+    const eye = document.querySelector(".key-eye"); if(eye) eye.textContent = "🔑";
+    // 恢复模型列表缓存（之前用这家 Key 拉取过的）
+    const cached = cfg && cfg.modelsByBase && cfg.modelsByBase[base];
+    $("modelList").innerHTML = cached ? cached.map(m=>`<option value="${esc(m)}">`).join("") : "";
+    if(cached && !$("fModel").value) $("fModel").value = p.model;
     if(p.url && p.steps){
       stepsBox.style.display = "block";
       stepsBox.innerHTML = `<div class="steps-title">🔑 三步拿到 Key（约 1 分钟）</div>
@@ -748,6 +758,7 @@ function usePreset(i){
     autoFetchModels();
   } else if(i === -2){
     $("provTip").textContent = "填任何 OpenAI 兼容平台的地址（到 /v1 为止）、Key 和模型名";
+    $("fKey").value = "";
     stepsBox.style.display = "none";
   }
 }
@@ -791,11 +802,14 @@ function setTheme(id){
   localStorage.setItem("aria.theme", id);
   if(id) document.body.dataset.theme=id; else delete document.body.dataset.theme;
   renderThemeCards();
+  if(window.__applyBGEffect) window.__applyBGEffect(id||"");
 }
 function openSettings(){
-  if(cfg){ $("fBase").value=cfg.baseUrl||""; $("fKey").value=cfg.apiKey||""; $("fModel").value=cfg.model||"";
-           $("fTemp").value=cfg.temperature??"0.7"; $("fAppName").value=cfg.appName||"";
-           $("fReason").value=cfg.reasoning||"auto"; }
+  if(cfg){
+    $("fBase").value=cfg.baseUrl||""; $("fModel").value=cfg.model||"";
+    $("fTemp").value=cfg.temperature??"0.7"; $("fAppName").value=cfg.appName||"";
+    $("fReason").value=cfg.reasoning||"auto";
+  }
   renderPresets();
   // 自动选中与当前配置匹配的服务商
   const sel = $("fProvider");
@@ -807,20 +821,65 @@ function openSettings(){
   }
   sel.value = String(matched);
   if(matched >= 0 && PRESETS[matched]) $("provTip").textContent = PRESETS[matched].note || "已自动填入";
+  // Key 按供应商独立存取：切到哪家就显示哪家的 Key
+  const base = $("fBase").value.trim().replace(/\/+$/,"");
+  $("fKey").value = (cfg && cfg.keyStore && cfg.keyStore[base]) || "";
+  $("fKey").type = "password";
+  const eye = document.querySelector(".key-eye"); if(eye) eye.textContent = "🔑";
+  // 恢复该供应商的模型列表缓存
+  const cached = cfg && cfg.modelsByBase && cfg.modelsByBase[base];
+  $("modelList").innerHTML = cached ? cached.map(m=>`<option value="${esc(m)}">`).join("") : "";
   $("overlay").classList.add("show");
 }
 $("overlay").addEventListener("click", e=>{ /* 只能通过 ✕ 或保存关闭，避免误触 */ });
-function saveSettings(){
+async function saveSettings(){
   const base=$("fBase").value.trim().replace(/\/+$/,""), key=$("fKey").value.trim(),
         model=$("fModel").value.trim(), tip=$("formTip");
   tip.textContent="";
   if(!base){ tip.textContent="⚠ 请先选择服务商（会自动填好地址）或手动填写 API 地址"; return; }
   if(!model){ tip.textContent="⚠ 请填写模型名（服务商下拉里已有推荐）"; return; }
   if(!key && !base.includes("11434")){ tip.textContent="⚠ 必须填写 API Key 才能保存使用（Ollama 本地模式除外）"; $("fKey").focus(); return; }
-  cfg = { baseUrl:base, apiKey:key, model:model, temperature:$("fTemp").value,
-          reasoning:$("fReason").value, appName:$("fAppName").value.trim() };
+
+  // 真实校验 Key：向上游发一次最小请求，通过才允许保存
+  const btn = document.querySelector(".btn-primary");
+  btn.disabled = true; tip.style.color = "var(--dim)";
+  tip.textContent = "⏳ 正在校验 Key（向上游发一次测试请求）…";
+  try{
+    const r = await fetch("/api/verify",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({baseUrl:base, apiKey:key||"ollama", model})});
+    const d = await r.json();
+    if(!d.ok){
+      let msg = d.error || "校验失败";
+      if(String(d.code)==="401" || /令牌|invalid|api key/i.test(msg)) msg = "Key 无效或已过期（401），请检查是否复制完整";
+      else if(String(d.code)==="404") msg = "模型名可能不对（404），请核对后重试";
+      tip.style.color = "#e5735f";
+      tip.textContent = "❌ 校验未通过：" + msg;
+      btn.disabled = false;
+      return;
+    }
+  }catch(e){
+    tip.style.color = "#e5735f";
+    tip.textContent = "❌ 无法连接上游接口：" + e.message + "（请检查网络或地址）";
+    btn.disabled = false;
+    return;
+  }
+  btn.disabled = false; tip.style.color = "#7fce8e";
+  tip.textContent = "✅ Key 校验通过！正在保存…";
+
+  // Key 按供应商独立保存 + 记住各家的模型列表
+  cfg = cfg || {};
+  cfg.baseUrl = base; cfg.model = model;
+  cfg.temperature = $("fTemp").value; cfg.reasoning = $("fReason").value;
+  cfg.appName = $("fAppName").value.trim();
+  cfg.keyStore = cfg.keyStore || {};
+  if(key) cfg.keyStore[base] = key;
+  cfg.modelsByBase = cfg.modelsByBase || {};
+  cfg.apiKey = key;   // 当前生效的 Key
   localStorage.setItem("aria.cfg", JSON.stringify(cfg));
-  refreshCfg(); applyBrand(); $("overlay").classList.remove("show");
+  setTimeout(()=>{
+    refreshCfg(); applyBrand(); $("overlay").classList.remove("show");
+    setStatus("已接入 "+model+"（Key 校验通过 ✅）");
+  }, 400);
 }
 function applyBrand(){
   const name = (cfg && cfg.appName) ? cfg.appName : "小凡智能体";
@@ -886,6 +945,12 @@ async function fetchModels(silent){
     const models = STANDALONE ? (d.data||[]).map(m=>m.id).filter(Boolean) : d.models;
     $("modelList").innerHTML = models.map(m=>`<option value="${esc(m)}">`).join("");
     if(models.length && !$("fModel").value) $("fModel").value = models[0];
+    // 记住该供应商的模型列表（下次切回来直接带出）
+    if(cfg){
+      cfg.modelsByBase = cfg.modelsByBase || {};
+      cfg.modelsByBase[base] = models;
+      localStorage.setItem("aria.cfg", JSON.stringify(cfg));
+    }
     if(!silent) setStatus(`获取到 ${models.length} 个模型`);
     else $("fModel").placeholder = `模型（如 ${models[0]}）`;
   }catch(e){ if(!silent) setStatus("获取失败："+e.message, true); }
@@ -1296,55 +1361,156 @@ $("skillFileInput").addEventListener("change", async e=>{
   }catch(err){ setStatus("导入失败："+err.message, true); }
 });
 
-/* ================= 动态星空：流星 + 浮尘 ================= */
+/* ================= 主题感知背景特效引擎（每套配色专属动效） ================= */
 (function(){
   const cv = document.getElementById("meteors"), ctx = cv.getContext("2d");
-  let W, H, stars = [], meteors = [];
+  let W, H, parts = [], raf = null, curTheme = null;
+
+  // 每套主题的特效定义：type + 调色
+  const EFFECTS = {
+    "":           {type:"meteor",  color:"242,212,146"},
+    "ocean":      {type:"bubble",  color:"120,190,255"},
+    "violet":     {type:"aurora",  color:"186,130,255"},
+    "forest":     {type:"firefly", color:"170,255,190"},
+    "ember":      {type:"ember",   color:"255,150,90"},
+    "rose":       {type:"petal",   color:"255,150,180"},
+    "light-warm": {type:"dust",    color:"190,155,80"},
+    "light-cool": {type:"cloud",   color:"120,160,220"},
+    "light-gray": {type:"dust",    color:"110,110,140"},
+    "mint":       {type:"leaf",    color:"90,190,140"},
+  };
+
   function resize(){ W = cv.width = innerWidth; H = cv.height = innerHeight; }
-  addEventListener("resize", resize); resize();
-  // 浮尘微光粒子
-  for(let i=0;i<40;i++) stars.push({
-    x:Math.random()*innerWidth, y:Math.random()*innerHeight,
-    r:Math.random()*1.4+.3, s:Math.random()*.15+.04,
-    a:Math.random()*.5+.15, tw:Math.random()*Math.PI*2
-  });
-  function spawnMeteor(){
-    meteors.push({
-      x:Math.random()*W*.8+W*.2, y:-40,
-      vx:-(Math.random()*3+4), vy:Math.random()*2.5+3.5,
-      len:Math.random()*90+110, life:1
-    });
-    setTimeout(spawnMeteor, Math.random()*6000+3500);
+  addEventListener("resize", ()=>{ resize(); build(curTheme); });
+
+  const R = (a,b)=>Math.random()*(b-a)+a;
+
+  function build(theme){
+    curTheme = theme;
+    const def = EFFECTS[theme] || EFFECTS[""];
+    parts = [];
+    const N = {meteor:14, bubble:26, aurora:4, firefly:34, ember:30, petal:22, dust:46, cloud:18, leaf:20}[def.type] || 20;
+    for(let i=0;i<N;i++) parts.push(spawn(def, i));
   }
-  setTimeout(spawnMeteor, 1200);
+  function spawn(def, i){
+    const c = def.color, t = def.type;
+    const base = {type:t, color:c, x:R(0,W), y:R(0,H), phase:R(0,Math.PI*2), seed:Math.random()};
+    switch(t){
+      case "meteor": return {...base, vx:-R(2.5,5), vy:R(2,4), len:R(80,180), life:1, delay:R(0,400)};
+      case "bubble": return {...base, r:R(2,7), vy:-R(.2,.7), sway:R(20,50)};
+      case "aurora": return {...base, amp:R(40,90), y:H*R(.1,.45), speed:R(.15,.4), width:R(60,140)};
+      case "firefly": return {...base, r:R(1.5,3), vx:R(-.4,.4), vy:R(-.3,.3), tw:R(0,7)};
+      case "ember": return {...base, r:R(1,2.6), vy:-R(.6,1.6), sway:R(15,40)};
+      case "petal": return {...base, r:R(3,6), vy:R(.3,.9), rot:R(0,7), vr:R(-.02,.02), sway:R(25,60)};
+      case "dust": return {...base, r:R(.8,2), vy:-R(.05,.2), tw:R(0,7)};
+      case "cloud": return {...base, r:R(40,110), vy:-R(.06,.18), a:R(.03,.07)};
+      case "leaf": return {...base, r:R(3,5.5), vy:R(.3,.8), rot:R(0,7), vr:R(-.03,.03), sway:R(20,50)};
+    }
+  }
+
+  function draw(p){
+    const light = curTheme && curTheme.startsWith("light");
+    switch(p.type){
+      case "meteor": {
+        const g = ctx.createLinearGradient(p.x, p.y, p.x + p.len, p.y - p.len*(p.vy/p.vx));
+        g.addColorStop(0, `rgba(${p.color},${(p.life*.85).toFixed(2)})`);
+        g.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.strokeStyle = g; ctx.lineWidth = 1.6; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.x + p.len, p.y - p.len*(p.vy/p.vx)); ctx.stroke();
+        ctx.beginPath(); ctx.arc(p.x, p.y, 1.5, 0, 7);
+        ctx.fillStyle = `rgba(${p.color},${p.life})`; ctx.fill(); break;
+      }
+      case "bubble": {
+        ctx.beginPath(); ctx.arc(p.x + Math.sin(p.phase)*p.sway*.4, p.y, p.r, 0, 7);
+        ctx.strokeStyle = `rgba(${p.color},.35)`; ctx.lineWidth = 1; ctx.stroke();
+        ctx.beginPath(); ctx.arc(p.x + Math.sin(p.phase)*p.sway*.4 - p.r*.3, p.y - p.r*.3, p.r*.25, 0, 7);
+        ctx.fillStyle = `rgba(${p.color},.25)`; ctx.fill(); break;
+      }
+      case "aurora": {
+        const g = ctx.createLinearGradient(0, p.y - p.amp, 0, p.y + p.amp);
+        g.addColorStop(0, `rgba(${p.color},0)`);
+        g.addColorStop(.5, `rgba(${p.color},${(.10 + .05*Math.sin(p.phase)).toFixed(3)})`);
+        g.addColorStop(1, `rgba(${p.color},0)`);
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.moveTo(0, p.y + p.amp);
+        for(let x=0; x<=W; x+=24)
+          ctx.lineTo(x, p.y + Math.sin(x*.004 + p.phase)*p.amp);
+        ctx.lineTo(W, p.y - p.amp); ctx.closePath(); ctx.fill();
+        ctx.filter = "blur(0px)"; break;
+      }
+      case "firefly": {
+        const a = .25 + .55*Math.abs(Math.sin(p.tw));
+        const g = ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r*4);
+        g.addColorStop(0, `rgba(${p.color},${a.toFixed(2)})`);
+        g.addColorStop(1, `rgba(${p.color},0)`);
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(p.x,p.y,p.r*4,0,7); ctx.fill();
+        ctx.beginPath(); ctx.arc(p.x,p.y,p.r*.8,0,7);
+        ctx.fillStyle = `rgba(${p.color},${Math.min(1,a+.3)})`; ctx.fill(); break;
+      }
+      case "ember": {
+        const a = .5 + .4*Math.sin(p.phase*2);
+        ctx.beginPath(); ctx.arc(p.x + Math.sin(p.phase)*p.sway*.3, p.y, p.r, 0, 7);
+        ctx.fillStyle = `rgba(${p.color},${a.toFixed(2)})`; ctx.fill(); break;
+      }
+      case "petal": case "leaf": {
+        ctx.save();
+        ctx.translate(p.x + Math.sin(p.phase)*p.sway*.4, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = `rgba(${p.color},.4)`;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, p.r, p.r*.5, 0, 0, 7); ctx.fill();
+        ctx.restore(); break;
+      }
+      case "dust": {
+        const a = (.2 + .3*Math.abs(Math.sin(p.tw))) * (light?1.1:1);
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7);
+        ctx.fillStyle = `rgba(${p.color},${a.toFixed(2)})`; ctx.fill(); break;
+      }
+      case "cloud": {
+        const g = ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r);
+        g.addColorStop(0, `rgba(${p.color},${p.a})`); g.addColorStop(1, `rgba(${p.color},0)`);
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,7); ctx.fill(); break;
+      }
+    }
+  }
+
+  function step(p){
+    p.phase += .01;
+    switch(p.type){
+      case "meteor":
+        if(p.delay > 0){ p.delay -= 16; return false; }
+        p.x += p.vx; p.y += p.vy; p.life -= .01;
+        if(p.life<=0 || p.x<-200 || p.y>H+200){ Object.assign(p, spawn(EFFECTS[curTheme]||EFFECTS[""],0)); p.delay = R(200,2500); }
+        return true;
+      case "bubble": p.y += p.vy; if(p.y < -10){ p.y = H+10; p.x = R(0,W); } return true;
+      case "aurora": p.phase += p.speed*.02; return true;
+      case "firefly":
+        p.tw += .04; p.x += p.vx + Math.sin(p.phase)*.3; p.y += p.vy + Math.cos(p.phase*.7)*.3;
+        if(p.x<0||p.x>W) p.vx*=-1; if(p.y<0||p.y>H) p.vy*=-1; return true;
+      case "ember": p.y += p.vy; p.phase += .02;
+        if(p.y < -10){ p.y = H+10; p.x = R(0,W); } return true;
+      case "petal": case "leaf":
+        p.y += p.vy; p.rot += p.vr; p.phase += .015;
+        if(p.y > H+15){ p.y = -15; p.x = R(0,W); } return true;
+      case "dust": p.y += p.vy; p.tw += .02;
+        if(p.y < -5){ p.y = H+5; p.x = R(0,W); } return true;
+      case "cloud": p.y += p.vy;
+        if(p.y < -p.r){ p.y = H + p.r; p.x = R(0,W); } return true;
+    }
+  }
+
   function tick(){
     ctx.clearRect(0,0,W,H);
-    const light = document.body.dataset.theme && document.body.dataset.theme.startsWith("light");
-    const starColor = light ? "180,150,90" : "235,220,180";
-    for(const s of stars){
-      s.y += s.s; s.tw += .02;
-      if(s.y > H+5){ s.y = -5; s.x = Math.random()*W; }
-      const a = s.a * (0.6 + 0.4*Math.sin(s.tw));
-      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7);
-      ctx.fillStyle = `rgba(${starColor},${a.toFixed(3)})`; ctx.fill();
-    }
-    for(let i=meteors.length-1;i>=0;i--){
-      const m = meteors[i];
-      m.x += m.vx; m.y += m.vy; m.life -= .008;
-      if(m.life<=0 || m.x<-150 || m.y>H+150){ meteors.splice(i,1); continue; }
-      const g = ctx.createLinearGradient(m.x, m.y, m.x + m.len*( -m.vx/6), m.y + m.len*(-m.vy/6));
-      const c1 = light ? "188,134,46," : "242,212,146,";
-      g.addColorStop(0, `rgba(${c1}${(m.life*.9).toFixed(3)})`);
-      g.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.strokeStyle = g; ctx.lineWidth = 1.6; ctx.lineCap = "round";
-      ctx.beginPath(); ctx.moveTo(m.x, m.y);
-      ctx.lineTo(m.x + m.len*(-m.vx/6)*-1, m.y + m.len*(-m.vy/6)*-1); ctx.stroke();
-      ctx.beginPath(); ctx.arc(m.x, m.y, 1.6, 0, 7);
-      ctx.fillStyle = `rgba(${c1}${m.life.toFixed(3)})`; ctx.fill();
-    }
-    requestAnimationFrame(tick);
+    for(const p of parts){ if(step(p)) draw(p); }
+    raf = requestAnimationFrame(tick);
   }
-  tick();
+
+  // 主题切换时重建特效
+  window.__applyBGEffect = function(theme){ if(raf) cancelAnimationFrame(raf); resize(); build(theme); tick(); };
+  window.__applyBGEffect(localStorage.getItem("aria.theme")||"");
 })();
 
 /* ================= 启动 ================= */
