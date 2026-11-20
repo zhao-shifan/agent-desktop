@@ -63,8 +63,8 @@ python3 server.py
 
 | 工具 | 能干什么 | 依赖 |
 |---|---|---|
-| `web_search` | 联网搜索，返回标题/链接/摘要 | 免 Key（DuckDuckGo，失败自动回退 360）；可在设置里填 Tavily Key 换更干净的结果 |
-| `fetch_url` | 抓取网页正文纯文本，用来精读搜索结果 | 无需 Key |
+| `web_search` | 联网搜索：Bing / 360 / DuckDuckGo / 百度**四源并发**，合并去重 | 免 Key；填 Tavily Key 可切到更高质量的后端 |
+| `fetch_url` | 抓取网页正文（trafilatura 抽取，去导航/广告/页脚） | 无需 Key |
 | `read_file` | 读本机文本文件（代码/配置/文档） | 受「工作目录」限制 |
 | `list_dir` | 列目录，找文件先用它 | 同上 |
 | `run_command` | 执行 PowerShell 命令并返回输出 | **默认关闭**，需在设置里显式勾选 |
