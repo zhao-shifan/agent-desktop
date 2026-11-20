@@ -135,6 +135,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.handle_models()
             elif self.path == "/api/docx":
                 self.handle_docx()
+            elif self.path == "/api/skill":
+                self.handle_skill()
             else:
                 self._send_json({"error": "not found"}, 404)
         except (BrokenPipeError, ConnectionResetError):
@@ -230,6 +232,37 @@ class Handler(BaseHTTPRequestHandler):
         buf = io.BytesIO()
         d.save(buf)
         return buf.getvalue()
+
+    # ---------- 技能包导入（zip 内 SKILL.md，Claude Skills 规范） ----------
+    def handle_skill(self):
+        import re, zipfile
+        payload = self._json_body()
+        name = payload.get("name", "skill")
+        data = base64.b64decode(payload.get("data", ""))
+        text = None
+        if name.lower().endswith(".zip"):
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                candidates = [n for n in z.namelist()
+                              if n.lower().endswith("skill.md") or (n.lower().endswith(".md") and "/" not in n)]
+                if not candidates:
+                    candidates = [n for n in z.namelist() if n.lower().endswith(".md")]
+                if not candidates:
+                    self._send_json({"error": "压缩包里没找到 .md 技能文件（需要 SKILL.md）"}, 400); return
+                text = z.read(candidates[0]).decode("utf-8", errors="replace")
+        else:
+            text = data.decode("utf-8", errors="replace")
+        m = re.match(r"^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$", text)
+        if m:
+            meta = {}
+            for l in m[1].split("\n"):
+                kv = re.match(r"^(\w+):\s*(.*)$", l)
+                if kv: meta[kv.group(1).strip()] = kv.group(2).strip()
+            self._send_json({"ok": True, "name": meta.get("name", "导入技能"),
+                             "desc": meta.get("description", "导入的技能"), "prompt": m[2].strip()})
+        else:
+            first = next((l.strip() for l in text.split("\n") if l.strip()), "导入技能")
+            self._send_json({"ok": True, "name": re.sub(r"^#+\s*", "", first)[:20],
+                             "desc": "上传的技能文件", "prompt": text.strip()})
 
     # ---------- 文件解析 ----------
     def handle_extract(self):
