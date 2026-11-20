@@ -107,6 +107,7 @@ class Handler(BaseHTTPRequestHandler):
             "/index.html": "index.html",
             "/qrcode.js": "qrcode.js",
             "/config.local.js": "config.local.js",
+            "/official_skills.js": "official_skills.js",
         }
         if self.path in static:
             path = os.path.join(ROOT, static[self.path])
