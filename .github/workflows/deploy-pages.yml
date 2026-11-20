@@ -1,0 +1,50 @@
+name: deploy-pages
+
+# 把「能在浏览器里装成 App 的那一份前端」发布到 GitHub Pages（https，手机才能安装 PWA）。
+# 仓库设置里需要把 Pages 来源改成 "GitHub Actions" 一次。
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "index.html"
+      - "qrcode.js"
+      - "official_skills.js"
+      - "manifest.json"
+      - "sw.js"
+      - "icons/**"
+      - ".github/workflows/deploy-pages.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 组装站点目录（只放前端，不放 server.py / 壁纸 / 配置）
+        run: |
+          mkdir -p _site
+          cp index.html qrcode.js official_skills.js manifest.json sw.js _site/
+          cp -r icons _site/icons
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
