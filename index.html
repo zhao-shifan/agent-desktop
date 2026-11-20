@@ -1661,12 +1661,12 @@ $("wallUploadInput").addEventListener("change", async e=>{
       }
       case "photo": {
         if(!p.img.complete || !p.img.naturalWidth) break;
-        const w = 130*p.scale, h = w * p.img.naturalHeight/p.img.naturalWidth;
+        const w = 84*p.scale, h = w * p.img.naturalHeight/p.img.naturalWidth;
         ctx.save();
         ctx.globalAlpha = p.alpha;
         ctx.translate(p.x + Math.sin(p.phase)*p.sway*.5, p.y);
-        ctx.rotate(p.rot + Math.sin(p.phase)*.08);
-        ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = 14; ctx.shadowOffsetY = 6;
+        ctx.rotate(p.rot + Math.sin(p.phase)*.1);
+        ctx.shadowColor = "rgba(0,0,0,.3)"; ctx.shadowBlur = 10; ctx.shadowOffsetY = 4;
         ctx.drawImage(p.img, -w/2, -h/2, w, h);
         ctx.restore(); break;
       }
@@ -1722,11 +1722,10 @@ $("wallUploadInput").addEventListener("change", async e=>{
     if(rain){
       const imgs = usablePhotos();
       parts = [];
-      const n = Math.min(imgs.length, 14);
-      for(let i=0;i<n;i++) parts.push({
-        type:"photo", img:imgs[i % imgs.length],
-        x:R(0,W), y:R(-H,0), vy:R(.10,.32), rot:R(-.38,.38), vr:R(-.006,.006),
-        sway:R(40,90), scale:R(.5,1), alpha:R(.2,.55), drift:R(-.15,.15)
+      for(let i=0;i<imgs.length;i++) parts.push({
+        type:"photo", img:imgs[i],
+        x:R(0,W), y:R(-H,H), vy:R(.08,.25), rot:R(-.3,.3), vr:R(-.005,.005),
+        sway:R(35,80), scale:R(.45,.85), alpha:R(.16,.42), drift:R(-.12,.12)
       });
       tick(); return;
     }
