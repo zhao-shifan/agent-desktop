@@ -1,75 +1,73 @@
-# Aria · 智能体桌面版
+# 小凡智能体（XiaoFan Agent）
 
-一个**零依赖、单文件夹、开箱即用**的 AI 智能体网页应用。电脑、手机、平板都能用，填入任意 OpenAI 兼容 API 即可开始对话，支持文件问答（Word / Excel / PPT / PDF / TXT / 代码）。
+一个**零依赖、单文件夹、开箱即用**的 AI 智能体应用。桌面、手机、平板全平台通用：填入任意 OpenAI 兼容 API（或使用免费模型）即可开始对话，支持文件问答、图片识别、Word 导出、技能系统。
 
 ![Python](https://img.shields.io/badge/Python-3.8+-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ## ✨ 功能
 
-- 💬 **窗口式流式对话** — 逐字输出，Markdown / 代码块渲染，多轮上下文记忆
-- 📁 **文件问答** — 拖入或上传文档，直接针对内容提问
-- 🔌 **任意 OpenAI 兼容接口** — DeepSeek / OpenAI / 通义 / Kimi / GLM / Ollama 本地模型，填 Key 即用
-- 📱 **手机扫码使用** — 局域网内手机扫码打开，可「添加到主屏幕」当 App 用
-- 🕘 **多会话管理** — 历史对话本地保存，随时切换
-- 🎨 **颗粒质感 UI** — 深色玻璃拟态界面，应用名称可自定义
+- 💬 **流式对话** — 逐字输出、Markdown/表格渲染、多轮上下文、消息复制/分支对话
+- 📁 **文件问答** — 拖入 TXT / Markdown / Word / Excel / PPT / PDF / 代码文件
+- 🖼️ **图片识别** — 传入图片自动切换视觉模型（如智谱 `glm-4v-flash`，免费）
+- 📄 **一键导出 Word** — AI 回复按 **Pandoc + GFM 标准** 转成排版完整的 .docx（表格/代码/列表全支持）
+- 🧩 **技能系统** — 内置 8 大技能（论文/报告/PPT/文献精读/翻译/代码/数据/文案），支持导入 Claude Skills 规范的 .zip/.md 技能包、自定义技能
+- 🎨 **10 套主题** — 每套配色带专属动态背景（流星/气泡/极光/萤火虫/樱花…），深浅色都有
+- 📱 **全平台通用** — 电脑服务模式 + 手机独立模式（同一套代码自动识别）
+- 🔌 **11 家服务商预设** — 每家带「三步获取 Key」图文引导和官网直达链接
+- 🔐 **Key 独立管理** — 各供应商 Key 分开保存、切换自动带出、保存前真实校验
 
-## 🚀 一键安装
+## 🚀 快速开始
 
 ### Windows
 
-1. 安装 [Python 3.8+](https://www.python.org/downloads/)（安装时勾选 **Add to PATH**）
-2. 下载本仓库（绿色按钮 Code → Download ZIP，解压）
-3. 双击 **`启动智能体.bat`** —— 完成！浏览器会自动打开
-
-> 可选：`pip install pypdf` 以支持 PDF 文件解析（Word/Excel/PPT 无需额外安装）
+1. 安装 [Python 3.8+](https://www.python.org/downloads/)（勾选 **Add to PATH**）
+2. 下载本仓库（Releases 里的 ZIP，解压）
+3. 双击 **`启动智能体.bat`** —— 浏览器自动打开
 
 ### macOS / Linux
 
 ```bash
-pip install pypdf          # 可选，PDF 支持
-python3 server.py          # 启动
-# 打开 http://127.0.0.1:8765
+pip install pypdf pypandoc-binary   # 可选：PDF 支持 + Word 导出
+python3 server.py
 ```
 
-## 📱 手机端使用
+## 📱 手机使用
 
-1. 手机与电脑连接**同一个 WiFi**
-2. 打开电脑端页面，点左下角 **「📱 手机扫码使用」**
-3. 用手机相机扫码即可打开（也可手动输入显示的地址）
-4. 建议：手机浏览器菜单 → **添加到主屏幕**，之后就像独立 App 一样全屏使用
+两种方式：
 
-## 🆓 完全免费方案（Ollama 本地模型）
+**方式 A · 局域网互联**（电脑开机时）
+电脑页面 → 「📱 手机扫码使用」→ 手机扫码打开，可「添加到主屏幕」当 App。
 
-不想花钱买 API？用 [Ollama](https://ollama.com) 在电脑上跑免费开源模型：
+**方式 B · 完全独立**（无需电脑）
+把 `index.html` 发到手机（微信/QQ 传给自己）→ 浏览器打开 → 添加到主屏幕。
+独立模式直连 API，DeepSeek / OpenRouter 等支持跨域的平台可用。
 
-```bash
-# 1. 安装 Ollama 后拉取模型（一次即可）
-ollama pull qwen3:8b
+## 🆓 完全免费方案
 
-# 2. 启动智能体，设置里选「Ollama 免费·本机」预设，不用填 Key
-```
+| 模型 | 说明 |
+|---|---|
+| `glm-4-flash` | 智谱，免费不限量，日常首选 |
+| `glm-5.3-flash` | 智谱新一代，带深度思考 |
+| `glm-4v-flash` | 智谱视觉模型，看图 |
+| Ollama 本地 | 任意开源模型，完全离线 |
 
-手机也能通过局域网用电脑的 Ollama（选「Ollama 免费·手机访问电脑」预设，把地址里的 IP 换成你电脑的局域网 IP）。
+注册 [open.bigmodel.cn](https://open.bigmodel.cn) → API 密钥 → 复制 → 粘贴，完事。
 
 ## ❓ FAQ
 
-**有上下文记忆吗？**
-有。同一会话内的全部历史都会作为上下文发给模型；切换/新建会话即开启新上下文。历史对话保存在浏览器本机。
-
-**我的 API Key 安全吗？**
-Key 只保存在你自己浏览器的 localStorage 里，请求由你本机的 server.py 直接转发给模型服务商，不经过任何第三方服务器。
-
-**支持哪些模型？**
-任何提供 OpenAI 兼容 `/v1/chat/completions` 接口的服务都可以。
+**有上下文记忆吗？** 有。同一会话全部历史作为上下文，支持分支对话。
+**Key 安全吗？** 只存你设备本地，请求由本机直连模型服务商。
+**智谱为什么不显示模型列表？** 该平台不提供列表接口，手动填模型名即可（预设已填好）。
 
 ## 📂 目录结构
 
 ```
 agent-desktop/
-├── server.py          # 本地服务（零第三方依赖）
-├── index.html         # 前端界面（单文件）
-├── qrcode.js          # 二维码库（MIT）
-└── 启动智能体.bat       # Windows 一键启动
+├── server.py        # 本地服务（零第三方依赖，可选装 pypdf/pypandoc 增强功能）
+├── index.html       # 统一前端（电脑/手机同一套代码）
+├── qrcode.js        # 二维码库（MIT）
+├── icon.ico         # 应用图标
+└── 启动智能体.bat    # Windows 一键启动
 ```
 
 ## License
