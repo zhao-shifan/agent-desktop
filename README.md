@@ -68,6 +68,8 @@ python3 server.py
 | `read_file` | 读本机文本文件（代码/配置/文档） | 受「工作目录」限制 |
 | `list_dir` | 列目录，找文件先用它 | 同上 |
 | `run_command` | 执行 PowerShell 命令并返回输出 | **默认关闭**，需在设置里显式勾选 |
+| `get_location` | 按出口 IP 粗略定位到城市（免 Key、免授权） | 无需 Key；**走 VPN/代理会显示成海外** |
+| `get_weather` | 当前天气 + 未来 1-7 天预报（Open-Meteo） | 无需 Key；city 留空则按 IP 定位 |
 
 **怎么用**：聊天框下方的「🛠 工具」按钮 → 变「工具开」即生效；设置里可配工作目录、搜索 Key、命令权限。
 
@@ -77,6 +79,8 @@ python3 server.py
 - 模型要支持 function calling：`glm-4-flash`、`glm-5.3-flash`、`deepseek-chat` 等都可以
 - 「允许执行命令」= 让 AI 在你电脑上跑命令，**只有完全信任时才开**；读文件也被限制在允许目录内
 - 工具调用最多 4 轮，防止无限循环
+- **定位是问出来的，不是模型自带的**：`get_location` 靠出口 IP（精度到城市），开了代理/VPN 会显示成海外；要精确位置得让浏览器/手机授权系统定位（本版未做，可后续加）
+- 天气走 Open-Meteo 公开接口，免 Key；没有城市名时会先调 `get_location`
 
 ## 🆓 完全免费方案
 
