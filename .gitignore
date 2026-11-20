@@ -1,4 +1,4 @@
-# 运行产物 / 本地私有文件不入库
+﻿# 运行产物 / 本地私有文件不入库
 .tmppip/
 server/libs/
 config.local.js
@@ -13,19 +13,12 @@ wallpapers/
 sample_check*.jpg
 make_wallpapers.py
 
-# 调试 / 一次性脚本与截图
-_*.py
-_*.png
-_dsh_ref/
-
-_*.mjs
-
 mobile/www/
 mobile/node_modules/
 mobile/android/
 
-# ��Ҫ workflow scope �������͵� GitHub���ݴ汾��
+# 需要 workflow 权限才能推送，先在本地保留
 .github/workflows/
 
-# ���ص��Խű�/��ͼһ�ɲ����
+# 本地调试脚本 / 截图，一律不入库
 _*
