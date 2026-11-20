@@ -434,6 +434,8 @@ body::before{
 <body>
 <button class="menu-toggle" onclick="document.querySelector('.sidebar').classList.toggle('open')">☰</button>
 <button class="expand-btn" id="expandBtn" onclick="toggleSidebar()" title="展开侧边栏">»</button>
+<div id="customBg" style="display:none;position:fixed;inset:0;z-index:0;background-size:cover;background-position:center;pointer-events:none"></div>
+<style>#customBg::after{content:"";position:absolute;inset:0;background:rgba(10,10,12,.45)}</style>
 <div class="aurora"><i></i><i></i><i></i></div>
 <canvas id="meteors" style="position:fixed;inset:0;z-index:0;pointer-events:none"></canvas>
 <div class="app">
@@ -635,6 +637,12 @@ body::before{
     </div>
     <p class="sub">深色护眼 / 浅色清新，点即生效，自动记住你的选择。</p>
     <div class="theme-grid" id="themeGrid"></div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn-ghost" style="flex:1" onclick="pickBgImage()">🖼️ 自定义背景图</button>
+      <button class="btn-ghost" style="flex:1" onclick="resetBgImage()">↺ 恢复默认背景</button>
+    </div>
+    <input type="file" id="bgFileInput" accept="image/*" hidden>
+    <p style="font-size:11px;color:var(--faint);margin-top:8px">自定义背景图会自动压缩适配，叠加半透明暗化层保证文字可读，动态特效继续叠加显示</p>
   </div>
 </div>
 <script>
@@ -803,6 +811,8 @@ function setTheme(id){
   if(id) document.body.dataset.theme=id; else delete document.body.dataset.theme;
   renderThemeCards();
   if(window.__applyBGEffect) window.__applyBGEffect(id||"");
+  const ov = $("themeOverlay");
+  if(ov.classList.contains("show")) setTimeout(()=>ov.classList.remove("show"), 350); // 选择后自动关闭
 }
 function openSettings(){
   if(cfg){
@@ -1361,7 +1371,44 @@ $("skillFileInput").addEventListener("change", async e=>{
   }catch(err){ setStatus("导入失败："+err.message, true); }
 });
 
-/* ================= 主题感知背景特效引擎（每套配色专属动效） ================= */
+/* ================= 自定义背景图 ================= */
+function applyCustomBg(){
+  const img = localStorage.getItem("aria.bgImage");
+  const el = $("customBg");
+  if(img){ el.style.backgroundImage = `url(${img})`; el.style.display = "block"; }
+  else { el.style.display = "none"; }
+}
+function pickBgImage(){ $("bgFileInput").click(); }
+$("bgFileInput").addEventListener("change", e=>{
+  const f = e.target.files[0]; e.target.value=""; if(!f) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    const im = new Image();
+    im.onload = ()=>{
+      // 压缩到最大 1920px 宽，JPEG 质量 0.82，避免撑爆 localStorage
+      const scale = Math.min(1, 1920/im.width);
+      const cv = document.createElement("canvas");
+      cv.width = Math.round(im.width*scale); cv.height = Math.round(im.height*scale);
+      cv.getContext("2d").drawImage(im, 0, 0, cv.width, cv.height);
+      const data = cv.toDataURL("image/jpeg", 0.82);
+      try{
+        localStorage.setItem("aria.bgImage", data);
+        applyCustomBg();
+        setStatus("自定义背景已应用（动态特效继续叠加）");
+      }catch(err){ setStatus("图片过大，压缩后仍超出本地存储限制，请换小一点的图", true); }
+    };
+    im.src = reader.result;
+  };
+  reader.readAsDataURL(f);
+});
+function resetBgImage(){
+  localStorage.removeItem("aria.bgImage");
+  applyCustomBg();
+  setStatus("已恢复默认主题背景");
+}
+$("#customBg") && null;
+
+/* ================= 动态特效引擎挂载点（实际引擎定义在下方 IIFE） ================= */
 (function(){
   const cv = document.getElementById("meteors"), ctx = cv.getContext("2d");
   let W, H, parts = [], raf = null, curTheme = null;
@@ -1529,6 +1576,7 @@ if(!cfg || !cfg.apiKey){
   }
 }
 refreshCfg(); applyBrand(); renderSessions();
+applyCustomBg();
 if(curId && curChat()) openChat(curId); else newChat();
 
 /* 首次使用引导：没配过 Key 就弹 */
