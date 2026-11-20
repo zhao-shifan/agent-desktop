@@ -1,0 +1,19 @@
+{
+  "appId": "com.xiaofan.agent",
+  "appName": "小凡智能体",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": true,
+    "backgroundColor": "#0c0c0e"
+  },
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 600,
+      "backgroundColor": "#0c0c0e",
+      "showSpinner": false
+    }
+  }
+}

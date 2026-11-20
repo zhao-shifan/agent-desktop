@@ -19,3 +19,10 @@ _*.png
 _dsh_ref/
 
 _*.mjs
+
+mobile/www/
+mobile/node_modules/
+mobile/android/
+
+# 需要 workflow scope 才能推送到 GitHub，暂存本地
+.github/workflows/
