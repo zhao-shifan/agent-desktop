@@ -1299,7 +1299,8 @@ let activeSkill = localStorage.getItem("aria.skill") || "";
 let customSkills = JSON.parse(localStorage.getItem("aria.customSkills")||"[]");
 function allSkills(){
   // 官方技能（Anthropic skills 仓库）置顶，其次精选，最后自定义
-  const official = (window.OFFICIAL_SKILLS||[]).map(s=>({...s, name:s.name}));
+  const ENV_NOTE = "\n\n【环境适配说明】当前是网页对话环境，无法运行代码或直接操作文件。请把技能里的步骤转化为：1)直接给出完整的文字/Markdown 成果（表格用 Markdown 表格）；2)若成果是 Word 文档，输出结构化 Markdown 并提醒用户点击回复下方「📄 Word」按钮导出；3)若需要代码，给出完整代码让用户本地运行。";
+  const official = (window.OFFICIAL_SKILLS||[]).map(s=>({...s, prompt: s.prompt + ENV_NOTE}));
   return [...customSkills, ...official, ...SKILLS];
 }
 function renderSkills(){
