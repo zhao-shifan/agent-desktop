@@ -1664,17 +1664,32 @@ async function saveSettings(){
   btn.disabled = true; tip.style.color = "var(--dim)";
   tip.textContent = "⏳ 正在校验 Key（向上游发一次测试请求）…";
   try{
-    const r = await fetch("/api/verify",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({baseUrl:base, apiKey:key||"ollama", model})});
-    const d = await r.json();
-    if(!d.ok){
-      let msg = d.error || "校验失败";
-      if(String(d.code)==="401" || /令牌|invalid|api key/i.test(msg)) msg = "Key 无效或已过期（401），请检查是否复制完整";
-      else if(String(d.code)==="404") msg = "模型名可能不对（404），请核对后重试";
-      tip.style.color = "#e5735f";
-      tip.textContent = "❌ 校验未通过：" + msg;
-      btn.disabled = false;
-      return;
+    if(STANDALONE){
+      // 独立模式（手机/APK/单文件）没有本地 /api/verify，直接保存；
+      // 连通性等首次对话时验证（401 会有明确提示）
+      tip.style.color = "var(--dim)";
+      tip.textContent = "已保存（独立模式不预校验）…";
+    } else {
+      const r = await fetch("/api/verify",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({baseUrl:base, apiKey:key||"ollama", model})});
+      let d = null;
+      try{ d = await r.json(); }catch(parseErr){ d = null; }
+      if(!d){
+        // 返回的不是 JSON（多半是打到了普通网页）——说明地址不对
+        tip.style.color = "#e5735f";
+        tip.textContent = "❌ 这个地址返回的是网页不是 API：检查 Base URL 是否以 /v1、/api/paas/v4 这类路径结尾";
+        btn.disabled = false;
+        return;
+      }
+      if(!d.ok){
+        let msg = d.error || "校验失败";
+        if(String(d.code)==="401" || /令牌|invalid|api key/i.test(msg)) msg = "Key 无效或已过期（401），请检查是否复制完整";
+        else if(String(d.code)==="404") msg = "模型名可能不对（404），请核对后重试";
+        tip.style.color = "#e5735f";
+        tip.textContent = "❌ 校验未通过：" + msg;
+        btn.disabled = false;
+        return;
+      }
     }
   }catch(e){
     tip.style.color = "#e5735f";
@@ -1683,7 +1698,7 @@ async function saveSettings(){
     return;
   }
   btn.disabled = false; tip.style.color = "#7fce8e";
-  tip.textContent = "✅ Key 校验通过！正在保存…";
+  tip.textContent = "✅ 已保存，正在应用…";
 
   // Key 按供应商独立保存 + 记住各家的模型列表
   cfg = cfg || {};
@@ -1697,7 +1712,7 @@ async function saveSettings(){
   localStorage.setItem("aria.cfg", JSON.stringify(cfg));
   setTimeout(()=>{
     refreshCfg(); applyBrand(); $("overlay").classList.remove("show");
-    setStatus("已接入 "+model+"（Key 校验通过 ✅）");
+    setStatus(STANDALONE ? "已接入 " + model : "已接入 " + model + "（Key 校验通过 ✅）");
   }, 400);
 }
 function applyBrand(){
