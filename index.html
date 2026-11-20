@@ -199,10 +199,11 @@ body::before{
 .chat-inner{max-width:780px;margin:0 auto;padding:0 24px}
 .welcome{padding-top:9vh;text-align:center}
 .welcome .mark{
-  width:64px;height:64px;margin:0 auto 26px;border-radius:20px;
+  min-width:64px;height:64px;margin:0 auto 26px;border-radius:20px;
   border:1px solid var(--line2);background:var(--panel);
   display:flex;align-items:center;justify-content:center;
-  font-family:var(--serif);font-size:28px;color:var(--accent2);
+  font-family:var(--serif);font-size:26px;color:var(--accent2);
+  white-space:nowrap;padding:0 22px;
 }
 .welcome h2{font-family:var(--serif);font-size:30px;font-weight:700;letter-spacing:.06em}
 .welcome p{color:var(--dim);font-size:14px;margin-top:12px;line-height:1.9}
@@ -290,6 +291,7 @@ body::before{
 }
 .composer textarea::placeholder{color:var(--faint)}
 .composer-bar{display:flex;align-items:center;padding:8px 12px 12px 12px;gap:10px}
+.bar-right{display:flex;align-items:center;gap:10px;margin-left:auto}
 .round-btn{
   width:38px;height:38px;border-radius:50%;border:1px solid var(--line2);background:var(--panel);
   color:var(--dim);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.2s;
@@ -309,9 +311,9 @@ body::before{
 .model-select option{background:var(--bg2);color:var(--txt);font-size:13px;padding:8px}
 @media(max-width:760px){.model-select{max-width:150px;font-size:12px}}
 .btn-send{
-  margin-left:auto;width:40px;height:40px;border-radius:50%;border:none;cursor:pointer;
+  width:40px;height:40px;border-radius:50%;border:none;cursor:pointer;
   background:linear-gradient(135deg,var(--accent),var(--accent2));background-size:150% 150%;
-  animation:sheen 5s ease infinite;color:#141210;transition:.2s;
+  animation:sheen 5s ease infinite;color:#141210;transition:.2s;flex-shrink:0;
   display:flex;align-items:center;justify-content:center;
   box-shadow:0 3px 14px var(--accent-dim);
 }
@@ -441,10 +443,12 @@ body::before{
           </button>
           <input type="file" id="fileInput" multiple hidden>
           <span class="composer-note" id="composerNote">支持文档 / 表格 / PDF / 代码</span>
-          <select id="quickModel" onchange="setQuickModel(this.value)" class="model-select" title="切换模型" style="margin-left:auto"></select>
-          <button class="btn-send" id="sendBtn" onclick="onSend()" title="发送">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-          </button>
+          <div class="bar-right">
+            <select id="quickModel" onchange="setQuickModel(this.value)" class="model-select" title="切换模型"></select>
+            <button class="btn-send" id="sendBtn" onclick="onSend()" title="发送">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+            </button>
+          </div>
         </div>
       </div>
       <div class="status" id="status"></div>
@@ -508,6 +512,7 @@ body::before{
       <button class="btn-ghost" onclick="fetchModels()">获取模型列表</button>
       <button class="btn-primary" onclick="saveSettings()">保存并使用</button>
     </div>
+    <p id="formTip" style="font-size:12px;color:#e5735f;margin-top:12px;min-height:16px;text-align:center"></p>
   </div>
 </div>
 
@@ -671,8 +676,13 @@ function openSettings(){
 }
 $("overlay").addEventListener("click", e=>{ /* 只能通过 ✕ 或保存关闭，避免误触 */ });
 function saveSettings(){
-  cfg = { baseUrl:$("fBase").value.trim().replace(/\/+$/,""), apiKey:$("fKey").value.trim(),
-          model:$("fModel").value.trim(), temperature:$("fTemp").value,
+  const base=$("fBase").value.trim().replace(/\/+$/,""), key=$("fKey").value.trim(),
+        model=$("fModel").value.trim(), tip=$("formTip");
+  tip.textContent="";
+  if(!base){ tip.textContent="⚠ 请先选择服务商（会自动填好地址）或手动填写 API 地址"; return; }
+  if(!model){ tip.textContent="⚠ 请填写模型名（服务商下拉里已有推荐）"; return; }
+  if(!key && !base.includes("11434")){ tip.textContent="⚠ 必须填写 API Key 才能保存使用（Ollama 本地模式除外）"; $("fKey").focus(); return; }
+  cfg = { baseUrl:base, apiKey:key, model:model, temperature:$("fTemp").value,
           reasoning:$("fReason").value, appName:$("fAppName").value.trim() };
   localStorage.setItem("aria.cfg", JSON.stringify(cfg));
   refreshCfg(); applyBrand(); $("overlay").classList.remove("show");
@@ -892,14 +902,32 @@ function onSend(){
   if(streaming){ abortCtl && abortCtl.abort(); return; }
   const text = $("input").value.trim();
   if(!text) return;
-  if(!cfg || !cfg.baseUrl || !cfg.model){ openSettings(); setStatus("请先完成 API 接入设置", true); return; }
+  if(!cfg || !cfg.baseUrl || !cfg.model || (!cfg.apiKey && !cfg.baseUrl.includes("11434"))){
+    openSettings();
+    $("formTip").textContent = (!cfg || !cfg.apiKey) ? "⚠ 请粘贴 API Key 后点「保存并使用」，才能开始对话" : "⚠ 请完善接入配置";
+    return;
+  }
 
-  let content = text;
+  let msg = {role:"user", content:text};
   if(attachments.length){
-    content = text + "\n\n" + attachments.map(a=>`【附件文件：${a.name}】\n<file>\n${a.text}\n</file>`).join("\n\n");
+    const imgs = attachments.filter(a=>a.image);
+    const texts = attachments.filter(a=>!a.image);
+    // 传图但当前模型不是视觉模型 → 自动切到免费视觉模型
+    if(imgs.length && cfg.baseUrl.includes("bigmodel") && !/(vl|4v|vision)/i.test(cfg.model)){
+      cfg.model = "glm-4v-flash";
+      localStorage.setItem("aria.cfg", JSON.stringify(cfg));
+      refreshCfg();
+      setStatus("检测到图片，已自动切换到免费视觉模型 glm-4v-flash 🖼️");
+    }
+    let body = text;
+    if(texts.length) body += "\n\n" + texts.map(a=>`【附件文件：${a.name}】\n<file>\n${a.text}\n</file>`).join("\n\n");
+    if(imgs.length){
+      msg.content = [{type:"text", text:body}].concat(
+        imgs.map(a=>({type:"image_url", image_url:{url:a.image}})));
+    } else msg.content = body;
     attachments=[]; renderAttachments();
   }
-  history.push({role:"user", content});
+  history.push(msg);
   appendMsg("user", text);
   $("input").value=""; $("input").style.height="auto";
 
@@ -972,8 +1000,13 @@ async function sendStream(){
     if(e.name==="AbortError"){ setStatus("已停止"); if(full) history.push({role:"assistant",content:full}); }
     else {
       let hint = e.message;
-      if(STANDALONE && (e.name==="TypeError" || hint==="Failed to fetch"))
-        hint = "独立模式直连被浏览器跨域拦截。解决：① 通过电脑服务打开 http://127.0.0.1:8765；② 或换支持跨域的平台（DeepSeek/OpenRouter）；③ 或把该 HTML 放到手机上用（部分平台同样受限）";
+      if(String(hint).includes("401") || String(hint).includes("令牌") || String(hint).includes("Invalid")){
+        hint = "API Key 无效或已过期，请在下方弹窗中粘贴正确的 Key";
+        openSettings();
+        $("formTip").textContent = "⚠ 当前 Key 被平台拒绝（401），请重新粘贴有效的 Key";
+      } else if(STANDALONE && (e.name==="TypeError" || hint==="Failed to fetch")){
+        hint = "独立模式直连被浏览器跨域拦截。解决：① 通过电脑服务打开 http://127.0.0.1:8765；② 或换支持跨域的平台（DeepSeek/OpenRouter）";
+      }
       setStatus(hint, true);
       el.innerHTML = `<p style="color:#e5735f">⚠ ${esc(hint)}</p>`;
     }
