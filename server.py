@@ -732,17 +732,58 @@ def lan_ip():
         return "127.0.0.1"
 
 
+def _fit_app_window(title_kw="小凡智能体", tries=24, delay=0.5):
+    """Chrome 会记住上次窗口尺寸，--window-size 不一定生效；启动后按工作区强制定位。"""
+    import ctypes
+    import time
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    rect = wintypes.RECT()
+    user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0)  # SPI_GETWORKAREA
+    left, top = int(rect.left), int(rect.top)
+    w, h = int(rect.right - rect.left), int(rect.bottom - rect.top)
+    if w < 800 or h < 600:
+        return False
+
+    Callback = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    for _ in range(tries):
+        time.sleep(delay)
+        found = []
+
+        def _cb(hwnd, _lparam):
+            n = user32.GetWindowTextLengthW(hwnd)
+            if n and user32.IsWindowVisible(hwnd):
+                buf = ctypes.create_unicode_buffer(n + 1)
+                user32.GetWindowTextW(hwnd, buf, n + 1)
+                if title_kw in buf.value:
+                    found.append(hwnd)
+            return True
+
+        user32.EnumWindows(Callback(_cb), 0)
+        if found:
+            # SWP_NOZORDER(0x4) | SWP_SHOWWINDOW(0x40)
+            user32.SetWindowPos(found[-1], 0, left, top, w, h, 0x44)
+            return True
+    return False
+
+
 def open_app_window(url):
     """优先用 Chrome/Edge 的「应用窗口」打开：无地址栏无标签页，默认铺满屏幕。"""
     import subprocess
-    # 按屏幕实际分辨率给一个接近全屏的窗口（Chrome 的 --start-maximized 在 app 模式下不总生效）
+    # 用「工作区」尺寸（去掉任务栏）铺满窗口；Chrome 的 --start-maximized 在 app 模式下不可靠
     try:
         import ctypes
-        u = ctypes.windll.user32
-        sw, sh = int(u.GetSystemMetrics(0)), int(u.GetSystemMetrics(1))
+        from ctypes import wintypes
+        rect = wintypes.RECT()
+        ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0)  # SPI_GETWORKAREA
+        left, top = int(rect.left), int(rect.top)
+        w, h = int(rect.right - rect.left), int(rect.bottom - rect.top)
+        if w < 800 or h < 600:
+            raise ValueError
     except Exception:
-        sw, sh = 1440, 960
-    w, h = max(960, sw - 40), max(700, sh - 100)
+        left, top, w, h = 0, 0, 1440, 900
     candidates = [
         os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
         os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
@@ -754,8 +795,10 @@ def open_app_window(url):
         if os.path.isfile(exe):
             try:
                 subprocess.Popen([exe, f"--app={url}", f"--window-size={w},{h}",
-                                  "--window-position=20,40", "--start-maximized"],
+                                  f"--window-position={left},{top}"],
                                  close_fds=True)
+                import threading
+                threading.Thread(target=_fit_app_window, daemon=True).start()
                 return True
             except Exception:
                 continue
