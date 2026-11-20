@@ -348,12 +348,23 @@ body::before{
 }
 .field input:focus,.field select:focus{border-color:var(--accent)}
 .field .tip{font-size:11px;color:var(--faint);margin-top:5px;line-height:1.6}
-.presets{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
-.preset{
-  padding:7px 14px;border-radius:999px;border:1px solid var(--line);cursor:pointer;
-  font-size:12px;color:var(--dim);background:var(--panel);transition:.15s;
+.presets{display:none}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.prov-select{
+  appearance:none;-webkit-appearance:none;width:100%;padding:12px 38px 12px 14px;border-radius:12px;
+  border:1px solid var(--line2);background:var(--bg2);color:var(--txt);font-size:13.5px;font-family:var(--sans);
+  cursor:pointer;outline:none;transition:.15s;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23999' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 14px center;
 }
-.preset:hover,.preset.on{border-color:var(--accent);color:var(--accent2)}
+.prov-select:focus{border-color:var(--accent)}
+.field input[type="password"]{letter-spacing:1px}
+.field{position:relative}
+.key-eye{
+  position:absolute;right:12px;top:38px;border:none;background:none;cursor:pointer;
+  color:var(--faint);font-size:15px;padding:2px;line-height:1;
+}
+.key-eye:hover{color:var(--accent2)}
 .modal-actions{display:flex;gap:10px;margin-top:22px}
 .btn-ghost,.btn-primary{
   flex:1;padding:11px;border-radius:11px;cursor:pointer;font-size:13px;font-family:var(--sans);transition:.2s;
@@ -447,45 +458,50 @@ body::before{
       <h3>接入设置</h3>
       <button class="x-close" onclick="$('overlay').classList.remove('show')">✕</button>
     </div>
-    <p class="sub">填入任意 OpenAI 兼容接口的地址与 Key 即可使用。配置只保存在本机浏览器中，不会上传到任何服务器。</p>
-    <div class="presets" id="presets"></div>
+    <p class="sub">选择服务商后自动填好地址和模型，你只需粘贴对应的 API Key。配置只保存在本机浏览器，不上传任何服务器。</p>
     <div class="field">
-      <label>应用名称（窗口与标题自定义）</label>
-      <input id="fAppName" placeholder="小凡智能体" maxlength="12">
+      <label>🏷️ 服务商</label>
+      <select id="fProvider" class="prov-select" onchange="usePreset(this.value)"></select>
+      <div class="tip" id="provTip">选择后自动填入地址与推荐模型</div>
     </div>
     <div class="field">
       <label>API 地址（Base URL）</label>
       <input id="fBase" placeholder="https://api.deepseek.com/v1">
-      <div class="tip">填到 /v1 即可，无需带 /chat/completions</div>
     </div>
     <div class="field">
       <label>API Key</label>
-      <input id="fKey" type="password" placeholder="sk-...">
+      <input id="fKey" type="password" placeholder="粘贴你在这家平台的 Key">
+      <button class="key-eye" type="button" onclick="toggleKeyEye(this)" title="显示/隐藏">🔑</button>
     </div>
     <div class="field">
       <label>模型</label>
-      <input id="fModel" list="modelList" placeholder="deepseek-chat">
+      <input id="fModel" list="modelList" placeholder="如 glm-4-flash">
       <datalist id="modelList"></datalist>
-      <div class="tip">可手动输入，也可点「获取模型列表」自动带出</div>
+      <div class="tip">自动填了推荐模型，可手动改；支持列表的平台填完 Key 会自动带出全部模型</div>
+    </div>
+    <div class="grid2">
+      <div class="field">
+        <label>创造力</label>
+        <select id="fTemp">
+          <option value="0">0 · 精确</option>
+          <option value="0.7" selected>0.7 · 平衡</option>
+          <option value="1">1 · 发散</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>推理深度</label>
+        <select id="fReason">
+          <option value="auto" selected>跟随模型</option>
+          <option value="off">关闭思考</option>
+          <option value="low">低</option>
+          <option value="medium">中</option>
+          <option value="high">高</option>
+        </select>
+      </div>
     </div>
     <div class="field">
-      <label>创造力（Temperature）</label>
-      <select id="fTemp">
-        <option value="0">0 · 精确</option>
-        <option value="0.7" selected>0.7 · 平衡</option>
-        <option value="1">1 · 发散</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>推理深度（深度思考）</label>
-      <select id="fReason">
-        <option value="auto" selected>跟随模型默认</option>
-        <option value="off">关闭思考 · 更快更省</option>
-        <option value="low">低 · 简单推理</option>
-        <option value="medium">中 · 均衡推理</option>
-        <option value="high">高 · 深度推理</option>
-      </select>
-      <div class="tip">深度思考适合数学/分析类问题；对支持思考的模型生效（如 GLM-5.3）</div>
+      <label>应用名称（可选）</label>
+      <input id="fAppName" placeholder="小凡智能体" maxlength="12">
     </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="fetchModels()">获取模型列表</button>
@@ -577,13 +593,29 @@ function mdRender(src){
 
 /* ================= 设置 ================= */
 function renderPresets(){
-  $("presets").innerHTML = PRESETS.map((p,i)=>`<span class="preset" title="${p.note||""}" onclick="usePreset(${i})">${p.name}</span>`).join("");
+  const sel = $("fProvider");
+  sel.innerHTML = `<option value="-1">— 选择服务商（自动填地址和模型）—</option>` +
+    PRESETS.map((p,i)=>`<option value="${i}">${p.name}</option>`).join("") +
+    `<option value="-2">自定义 / 其他 OpenAI 兼容平台</option>`;
 }
 function usePreset(i){
-  const p = PRESETS[i];
-  $("fBase").value=p.base; $("fModel").value=p.model;
-  if(p.base.includes("11434") && !$("fKey").value) $("fKey").value="ollama";
-  document.querySelectorAll(".preset").forEach((el,j)=>el.classList.toggle("on",j===i));
+  i = parseInt(i);
+  document.querySelectorAll(".preset").forEach(el=>el.classList.remove("on"));
+  if(i >= 0 && i < PRESETS.length){
+    const p = PRESETS[i];
+    $("fBase").value=p.base; $("fModel").value=p.model;
+    $("provTip").textContent = p.note || "已自动填入地址与推荐模型，粘贴 Key 即可";
+    autoFetchModels();
+  } else if(i === -2){
+    $("provTip").textContent = "填任何 OpenAI 兼容平台的地址（到 /v1 为止）、Key 和模型名";
+  }
+}
+/* Key 显示/隐藏 */
+function toggleKeyEye(btn){
+  const f = $("fKey");
+  const show = f.type === "password";
+  f.type = show ? "text" : "password";
+  btn.textContent = show ? "🙈" : "🔑";
 }
 const THEMES = [
   {id:"", name:"鎏金墨黑", badge:"默认", prev:{bg:"linear-gradient(135deg,#17181d,#0d0e11)", glow:"rgba(226,184,87,.55)", accent:"#e2b857", bub:"#26272d", bub2:"#232019"}},
@@ -624,6 +656,16 @@ function openSettings(){
            $("fTemp").value=cfg.temperature??"0.7"; $("fAppName").value=cfg.appName||"";
            $("fReason").value=cfg.reasoning||"auto"; }
   renderPresets();
+  // 自动选中与当前配置匹配的服务商
+  const sel = $("fProvider");
+  let matched = -1;
+  if(cfg && cfg.baseUrl){
+    const exact = PRESETS.findIndex(p=>p.base===cfg.baseUrl && (!cfg.model || p.model===cfg.model));
+    const byBase = PRESETS.findIndex(p=>p.base===cfg.baseUrl);
+    matched = exact >= 0 ? exact : (byBase >= 0 ? byBase : -2);
+  }
+  sel.value = String(matched);
+  if(matched >= 0 && PRESETS[matched]) $("provTip").textContent = PRESETS[matched].note || "已自动填入";
   $("overlay").classList.add("show");
 }
 $("overlay").addEventListener("click", e=>{ /* 只能通过 ✕ 或保存关闭，避免误触 */ });
