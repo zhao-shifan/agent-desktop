@@ -645,9 +645,9 @@ body::before{
 .menu-toggle{display:none}
 /* 手机端侧边栏遮罩：展开时盖住内容区，点空白即折叠（参考 DeepSeek） */
 #sbScrim{position:fixed;inset:0;z-index:49;background:rgba(0,0,0,.42);display:none}
-body:has(.sidebar.open) #sbScrim{display:block}
-/* 侧栏展开时隐藏悬浮汉堡按钮，收起后恢复（避免按钮叠在侧栏上） */
-body:has(.sidebar.open) .menu-toggle{display:none}
+body.sb-open #sbScrim{display:block}
+/* 侧栏展开时隐藏悬浮汉堡按钮，收起后恢复（JS 切 body.sb-open，不用 :has，兼容微信/X5 内核） */
+body.sb-open .menu-toggle{display:none}
 @media(max-width:760px){
   .sidebar{position:fixed;left:0;top:0;bottom:0;z-index:50;transform:translateX(-100%);transition:.25s}
   .sidebar.open{transform:none;box-shadow:0 0 60px rgba(0,0,0,.6)}
@@ -697,10 +697,18 @@ body:has(.sidebar.open) .menu-toggle{display:none}
   .avatar{width:30px;height:30px;font-size:13px}
   .bubble{font-size:14px}
 
+  /* 触控优化（参考 dsh-mobile-ui 规范）：44px 触控目标 / 16px 输入防 iOS 聚焦缩放 / 去点按高亮与双击缩放 */
+  body{-webkit-tap-highlight-color:transparent}
+  button,select,.mode-chip,.wall-thumb,.sess-item{touch-action:manipulation;user-select:none}
+  button,select,.mode-chip{min-height:36px}
+  .composer textarea{font-size:16px}
+  .round-btn{width:38px;height:38px}
+  .btn-send{width:40px;height:40px}
+
   /* 输入区：说明文字在窄屏会挤成一列，直接不显示；按钮允许换行 */
   .composer-wrap{padding:0 10px 12px;padding-bottom:calc(12px + var(--kb, 0px))}
   .composer{border-radius:16px}
-  .composer textarea{padding:12px 12px 6px;font-size:14px}
+  .composer textarea{padding:12px 12px 6px;font-size:16px}
   .composer-bar{flex-wrap:wrap;row-gap:8px;padding:6px 8px 8px;gap:8px}
   .composer-note{display:none}
   .bar-right{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto;justify-content:flex-end;flex:1 1 auto}
@@ -728,7 +736,7 @@ body:has(.sidebar.open) .menu-toggle{display:none}
 </style>
 </head>
 <body>
-<button class="menu-toggle" onclick="document.querySelector('.sidebar').classList.toggle('open')">☰</button>
+<button class="menu-toggle" onclick="setSidebar(!document.querySelector('.sidebar').classList.contains('open'))">☰</button>
 <button class="expand-btn" id="expandBtn" onclick="toggleSidebar()" title="展开侧边栏">»</button>
 <div id="customBg" style="display:none;position:fixed;inset:0;z-index:0;background-size:cover;background-position:center;pointer-events:none;overflow:hidden">
   <div class="cb-blur" style="position:absolute;inset:-50px;background-size:cover;background-position:center;filter:blur(30px) brightness(.55);display:none"></div>
@@ -1976,7 +1984,7 @@ function newChat(){
   curId = null; history=[]; attachments=[]; msgCount=0;   // 新对话：清空上下文，不继承任何旧对话
   renderAttachments(); renderSessions(); updateScrollNav(); renderMsgNav();
   $("chatInner").innerHTML = WELCOME;
-  document.querySelector(".sidebar").classList.remove("open");
+  setSidebar(false);
 }
 const WELCOME = document.getElementById("welcome").outerHTML;
 
@@ -2056,7 +2064,7 @@ function openChat(id){
   chatBox.scrollTop = chatBox.scrollHeight;
   chatBox.style.scrollBehavior = "";
   updateScrollNav(); renderMsgNav();
-  document.querySelector(".sidebar").classList.remove("open");
+  setSidebar(false);
 }
 function delChat(id){
   chats = chats.filter(c=>c.id!==id);
@@ -3193,6 +3201,11 @@ function toggleSidebar(){
   sb.classList.toggle("collapsed");
   $("expandBtn").classList.toggle("show", sb.classList.contains("collapsed"));
 }
+/* 侧栏展开/收起统一入口：同时切 body.sb-open（汉堡按钮隐藏、遮罩显示都挂在这个 class 上） */
+function setSidebar(open){
+  document.querySelector(".sidebar").classList.toggle("open", !!open);
+  document.body.classList.toggle("sb-open", !!open);
+}
 
 /* ================= 技能系统 ================= */
 const SKILLS = [
@@ -3951,7 +3964,7 @@ $("input").addEventListener("focus", ()=>{
   setTimeout(()=>{ $("input").scrollIntoView({block:"nearest"}); scrollBottom(); }, 300);
 });
 /* ===== 手机端侧边栏手势（参考 DeepSeek）：左缘右滑展开 / 往左滑或点空白折叠 ===== */
-$("sbScrim").addEventListener("click", ()=>{ document.querySelector(".sidebar").classList.remove("open"); });
+$("sbScrim").addEventListener("click", ()=>{ setSidebar(false); });
 (function(){
   let sx = 0, sy = 0, tracking = false, fromEdge = false;
   document.addEventListener("touchstart", e=>{
@@ -3965,10 +3978,10 @@ $("sbScrim").addEventListener("click", ()=>{ document.querySelector(".sidebar").
     const dx = t.clientX - sx, dy = Math.abs(t.clientY - sy);
     const sb = document.querySelector(".sidebar");
     if(dy > 70) return;   // 主要是竖向滚动，不当作手势
-    if(fromEdge && dx > 55){ sb.classList.add("open"); return; }
+    if(fromEdge && dx > 55){ setSidebar(true); return; }
     if(sb.classList.contains("open") && dx < -55){
       const r = sb.getBoundingClientRect();
-      if(t.clientX > r.right){ sb.classList.remove("open"); }
+      if(t.clientX > r.right){ setSidebar(false); }
     }
   }, {passive:true});
 })();
