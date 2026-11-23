@@ -22,3 +22,6 @@ mobile/android/
 
 # 本地调试脚本 / 截图，一律不入库
 _*
+
+# 运行时数据
+agent_data/

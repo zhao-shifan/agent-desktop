@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -354,6 +354,13 @@ body::before{
 .act:hover{color:var(--accent2);background:var(--accent-dim)}
 .act svg{width:12px;height:12px}
 /* 导出附件式文件卡片（参考豆包消息下方的文件下载条） */
+/* 可折叠思考块（参考 DeepSeek：思考时展开滚动，出答案后折叠成一行） */
+.think-box{border-left:2px solid var(--line2);padding-left:10px;margin:0 0 8px}
+.think-box .think-head{cursor:pointer;user-select:none;color:var(--faint);font-size:12.5px;display:inline-block}
+.think-box .think-head:hover{color:var(--dim)}
+.think-box .think-body{color:var(--faint);font-size:12.5px;line-height:1.7;font-style:italic;
+  white-space:pre-wrap;max-height:220px;overflow-y:auto;margin-top:6px}
+.think-box .tb-arrow{font-size:11px}
 .exp-chip{
   display:inline-flex;align-items:center;gap:4px;cursor:pointer;flex-shrink:0;
   font-size:11px;padding:3px 10px;border-radius:999px;
@@ -394,7 +401,7 @@ body::before{
 .cursor::after{content:"▍";color:var(--accent);animation:blink 1s steps(1) infinite}
 @keyframes blink{50%{opacity:0}}
 
-.fattachments{display:flex;gap:8px;flex-wrap:wrap;padding:0 24px;max-width:780px;margin:0 auto 8px}
+.fattachments{display:none;gap:8px;flex-wrap:wrap;padding:12px 12px 0}
 .fchip{
   display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:10px;
   border:1px solid var(--line2);background:var(--panel);font-size:12px;color:var(--dim);max-width:280px;
@@ -403,6 +410,22 @@ body::before{
 .fchip span{color:var(--faint);flex-shrink:0}
 .fchip button{background:none;border:none;color:var(--faint);cursor:pointer;font-size:14px;padding:0}
 .fchip button:hover{color:#e5735f}
+/* 图片附件：DeepSeek 式缩略图卡片（贴进输入框上方，可直接看到图） */
+.img-chip{
+  position:relative;width:64px;height:64px;border-radius:10px;overflow:hidden;
+  border:1px solid var(--line2);background:var(--panel);cursor:pointer;flex-shrink:0;
+}
+.img-chip img{width:100%;height:100%;object-fit:cover;display:block}
+.img-chip button{
+  position:absolute;top:2px;right:2px;width:18px;height:18px;border:none;border-radius:50%;
+  background:rgba(0,0,0,.6);color:#fff;font-size:12px;line-height:1;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;padding:0;
+}
+.img-chip button:hover{background:rgba(229,115,95,.9)}
+/* 用户消息气泡里的图片缩略图 */
+.bubble-imgs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.bubble-imgs .bubble-img{width:120px;max-height:90px;object-fit:cover;border-radius:10px;
+  border:1px solid var(--line2);cursor:zoom-in;display:block}
 
 /* ---- 输入区 ---- */
 .composer-wrap{padding:0 24px 26px}
@@ -620,15 +643,32 @@ body::before{
 ::-webkit-scrollbar-track{background:none}
 *{scrollbar-color:rgba(255,255,255,.28) transparent;scrollbar-width:thin}
 .menu-toggle{display:none}
+/* 手机端侧边栏遮罩：展开时盖住内容区，点空白即折叠（参考 DeepSeek） */
+#sbScrim{position:fixed;inset:0;z-index:49;background:rgba(0,0,0,.42);display:none}
+body:has(.sidebar.open) #sbScrim{display:block}
 @media(max-width:760px){
   .sidebar{position:fixed;left:0;top:0;bottom:0;z-index:50;transform:translateX(-100%);transition:.25s}
   .sidebar.open{transform:none;box-shadow:0 0 60px rgba(0,0,0,.6)}
-  .menu-toggle{display:flex;position:fixed;top:14px;left:14px;z-index:60;width:38px;height:38px;border-radius:11px;
+  /* 汉堡按钮避开手机状态栏/挖孔（参考 DeepSeek：按钮在内容区顶部，不顶到屏幕边缘） */
+  .menu-toggle{display:flex;position:fixed;top:calc(env(safe-area-inset-top, 0px) + 44px);left:14px;z-index:60;width:38px;height:38px;border-radius:11px;
     border:1px solid var(--line2);background:rgba(20,20,24,.8);backdrop-filter:blur(10px);color:var(--dim);
     align-items:center;justify-content:center;cursor:pointer}
-  .chat{padding-top:64px}
+  .chat{padding-top:calc(env(safe-area-inset-top, 0px) + 92px)}
   .welcome{padding-top:3vh}
   .welcome h2{font-size:24px}
+  /* 导出芯片（Word/MD/TXT/Excel/PDF）一行放不下 → 横向滑动，不裁切 */
+  .msg-actions{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;height:auto;min-height:24px;
+    -webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px}
+  .msg-actions::-webkit-scrollbar{display:none}
+}
+
+/* ===== 中等宽度（应用窗口默认尺寸）===== */
+@media(max-width:1080px){
+  .composer-wrap{padding:0 14px 14px}
+  .composer-note{display:none}
+  .model-select{max-width:150px}
+  .skill-select{max-width:118px}
+  .chat-inner{padding:0 16px}
 }
 
 /* ===== 中等宽度（应用窗口默认尺寸）===== */
@@ -646,6 +686,8 @@ body::before{
   .chat{padding:60px 0 6px}
   .chat-inner{padding:0 14px}
   .welcome{padding-top:2vh}
+  /* 键盘弹起：压缩主体高度而不是整页顶走 */
+  body{height:calc(100dvh - var(--kb, 0px));overflow:hidden}
   .welcome .mark{width:54px;height:54px;font-size:22px;border-radius:16px}
   .welcome h2{font-size:22px}
   .welcome p{font-size:13px;line-height:1.8}
@@ -654,7 +696,7 @@ body::before{
   .bubble{font-size:14px}
 
   /* 输入区：说明文字在窄屏会挤成一列，直接不显示；按钮允许换行 */
-  .composer-wrap{padding:0 10px 12px}
+  .composer-wrap{padding:0 10px 12px;padding-bottom:calc(12px + var(--kb, 0px))}
   .composer{border-radius:16px}
   .composer textarea{padding:12px 12px 6px;font-size:14px}
   .composer-bar{flex-wrap:wrap;row-gap:8px;padding:6px 8px 8px;gap:8px}
@@ -665,10 +707,13 @@ body::before{
   .round-btn{width:32px;height:32px}
   .btn-send{width:34px;height:34px;flex:0 0 auto}
 
-  /* 弹窗：宽度锁死到视口，内部留白收窄，避免右侧被裁 */
-  .overlay{padding:10px}
-  .modal{width:100%!important;max-width:100%!important;max-height:92vh;border-radius:16px;padding:0 16px 16px}
-  .modal-fixed{margin:0 -16px;padding:18px 16px 0}
+  /* 弹窗：DeepSeek 手机端式底部抽屉——贴底滑出，高度留白，不整屏糊脸 */
+  .overlay{padding:0}
+  .overlay.show{align-items:flex-end}
+  .modal{width:100%!important;max-width:100%!important;max-height:82vh;height:auto;
+         border-radius:18px 18px 0 0;padding:0 16px 16px;animation:sheetUp .25s ease}
+  .modal-fixed{margin:0 -16px;padding:16px 16px 0}
+  @keyframes sheetUp{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
   .modal h3{font-size:17px}
   .modal .sub{font-size:12px;margin-bottom:16px}
   .modal img,.modal table,.modal pre{max-width:100%}
@@ -694,7 +739,8 @@ body::before{
 <div class="aurora"><i></i><i></i><i></i></div>
 <canvas id="meteors" style="position:fixed;inset:0;z-index:0;pointer-events:none"></canvas>
 <div class="app">
-  <aside class="sidebar" id="sidebar">
+  <div id="sbScrim"></div>
+<aside class="sidebar" id="sidebar">
     <button class="collapse-btn" onclick="toggleSidebar()" title="折叠侧边栏">«</button>
     <div class="brand">
       <h1>小凡智能体</h1>
@@ -743,9 +789,9 @@ body::before{
         </div>
       </div>
     </div>
-    <div class="fattachments" id="attachments"></div>
     <div class="composer-wrap">
       <div class="composer">
+        <div class="fattachments" id="attachments"></div>
         <textarea id="input" rows="1" placeholder="输入你的问题… （@ 唤起技能/命令 · Enter 发送 / Shift+Enter 换行）"></textarea>
         <div class="mention-menu" id="mentionMenu"></div>
         <div class="composer-bar">
@@ -968,11 +1014,15 @@ body::before{
         <button class="btn-key" style="margin:0 0 0 auto" onclick="togglePhotoRain()" id="photoRainBtn">🎬 照片漂浮：关</button>
       </div>
       <div id="wallGrid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-height:46vh;overflow-y:auto"></div>
+      <div id="myWallWrap" style="display:none;margin-top:14px">
+        <p class="sub" style="margin:0 0 8px">📷 我的壁纸（上传只存在本机，不会进公共库；点图应用，✕ 删除）</p>
+        <div id="myWallGrid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px"></div>
+      </div>
       <div style="display:flex;gap:10px;margin-top:12px">
-        <button class="btn-ghost" style="flex:1" onclick="pickWallUpload()">📤 上传新照片进库（png/jpg/截图均可）</button>
+        <button class="btn-ghost" style="flex:1" onclick="pickWallUpload()">📤 上传我的照片（先裁剪，仅存本机）</button>
         <input type="file" id="wallUploadInput" accept="image/*" hidden>
       </div>
-      <p style="font-size:11px;color:var(--faint);margin-top:6px">上传后自动裁剪截图状态栏，并生成清晰/暗化/模糊三版本入库，同时更新照片漂浮素材</p>
+      <p style="font-size:11px;color:var(--faint);margin-top:6px">上传会先弹出裁剪框（可选 16:9 / 9:16 / 1:1 比例），裁完保存在本机；下方「我的壁纸」里可随时删除。官方壁纸库不受影响、不可删除。</p>
     </div>
   </div>
 </div>
@@ -1121,8 +1171,8 @@ function toggleTools(){
   syncToolBtn();
   setStatus(toolsOn ? "工具已开启：可联网搜索 / 读文件 / 抓网页" : "工具已关闭：仅用模型自身知识回答");
 }
-const TOOL_ICONS = {web_search:"🔍", fetch_url:"🌐", read_file:"📄", list_dir:"📁", run_command:"⌨️", get_location:"📍", get_weather:"🌤"};
-const TOOL_NAMES = {web_search:"联网搜索", fetch_url:"抓取网页", read_file:"读文件", list_dir:"列目录", run_command:"执行命令", get_location:"定位", get_weather:"查天气"};
+const TOOL_ICONS = {web_search:"🔍", fetch_url:"🌐", read_file:"📄", list_dir:"📁", run_command:"⌨️", get_location:"📍", get_weather:"🌤", get_time:"🕒", calculator:"🧮", run_python:"🐍", wikipedia_search:"📚", save_note:"💾", search_notes:"🔎"};
+const TOOL_NAMES = {web_search:"联网搜索", fetch_url:"抓取网页", read_file:"读文件", list_dir:"列目录", run_command:"执行命令", get_location:"定位", get_weather:"查天气", get_time:"查时间", calculator:"计算", run_python:"跑Python", wikipedia_search:"查维基", save_note:"存笔记", search_notes:"搜笔记"};
 /* ===== 独立模式（手机 / file:// / APK）也能用的工具 =====
    没有本地服务，所以只能走「允许跨域」的公开接口：
    - 搜索 / 抓网页 → r.jina.ai 转发（带 CORS）
@@ -1140,6 +1190,15 @@ const STANDALONE_TOOL_DEFS = [
     parameters:{type:"object", properties:{city:{type:"string"}, days:{type:"integer"}}}}},
   {type:"function", function:{name:"get_location",
     description:"按出口 IP 粗略判断用户所在城市。", parameters:{type:"object", properties:{}}}},
+  {type:"function", function:{name:"get_time",
+    description:"获取当前本地时间、星期、时间戳（无需联网）。问'现在几点/星期几'时使用。",
+    parameters:{type:"object", properties:{}}}},
+  {type:"function", function:{name:"calculator",
+    description:"精确计算数学表达式。任何数值计算都必须用它，不要心算。",
+    parameters:{type:"object", properties:{expression:{type:"string", description:"数学表达式，如 (1250*0.85+360)/3"}}, required:["expression"]}}},
+  {type:"function", function:{name:"wikipedia_search",
+    description:"查询维基百科百科知识（人物/概念/历史/术语），返回摘要和链接。通用知识优先用它。",
+    parameters:{type:"object", properties:{query:{type:"string"}, lang:{type:"string", description:"zh/en/ja，默认 zh"}}, required:["query"]}}},
 ];
 async function standaloneTool(name, args){
   try{
@@ -1204,6 +1263,43 @@ async function standaloneTool(name, args){
       }
       return "定位失败（接口限流或被代理拦截），请直接告诉我城市";
     }
+    if(name === "get_time"){
+      const n = new Date();
+      const week = "日一二三四五六"[n.getDay()];
+      return `现在时间：${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")} ${String(n.getHours()).padStart(2,"0")}:${String(n.getMinutes()).padStart(2,"0")}:${String(n.getSeconds()).padStart(2,"0")}（周${week}）\nISO：${n.toISOString()}\nUnix 时间戳：${Math.floor(n.getTime()/1000)}`;
+    }
+    if(name === "calculator"){
+      // 与桌面版同规则：先 AST 级白名单校验（字符白名单），再交给 Function 求值
+      const expr = String(args.expression || "").replace(/×/g, "*").replace(/÷/g, "/").replace(/\^/g, "**").trim();
+      if(!expr) return "表达式为空";
+      if(!/^[0-9+\-*/%().\s]*$/.test(expr.replace(/\*\*/g, ""))) return "只支持 + - * / % ** ( ) 和数字，复杂任务等电脑版用 run_python";
+      if(/\*\*/.test(expr) && expr.split("**").length > 6) return "幂运算次数过多";
+      try{
+        const v = Function('"use strict"; return (' + expr + ')')();
+        if(typeof v !== "number" || !isFinite(v)) return "结果无效（除零或溢出）";
+        let out = `${expr} = ${v}`;
+        if(Number.isInteger(v) === false && Math.abs(v) < 1e15 && Math.round(v) === v) out += `（整数结果：${Math.round(v)}）`;
+        return out;
+      }catch(e){ return "计算失败：" + e.message; }
+    }
+    if(name === "wikipedia_search"){
+      const lang = ["zh","en","ja"].includes(args.lang) ? args.lang : "zh";
+      const q = encodeURIComponent(String(args.query || "").trim());
+      if(!q) return "搜索词为空";
+      const s = await fetch(`https://${lang}.wikipedia.org/w/api.php?action=opensearch&limit=5&format=json&origin=*&search=${q}`);
+      const data = await s.json();
+      const titles = data[1] || [];
+      if(!titles.length) return `维基百科没找到「${args.query}」相关条目`;
+      const out = [];
+      for(let i = 0; i < Math.min(3, titles.length); i++){
+        try{
+          const r = await fetch(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(String(titles[i]).replace(/ /g, "_"))}`);
+          const j = await r.json();
+          out.push(`${i+1}. ${j.title}\n   ${String(j.extract || "").slice(0, 500)}\n   链接：${j.content_urls?.desktop?.page || ""}`);
+        }catch(e){ out.push(`${i+1}. ${titles[i]}（摘要获取失败）`); }
+      }
+      return out.join("\n\n");
+    }
     return "未知工具：" + name;
   }catch(e){
     return "工具执行失败：" + e.message;
@@ -1212,6 +1308,12 @@ async function standaloneTool(name, args){
 /* 独立模式（手机/APK）：前端自己跑 function-calling 循环 */
 async function standaloneChatWithTools(msgs, el, toolLog){
   const hist = msgs.slice();
+  // 工具纪律（与桌面版一致）：能不调工具就不调，省时间
+  if(!hist.some(m => m.role === "system")){
+    hist.unshift({role:"system", content:
+      "工具使用纪律：只在必要时调用工具——涉及实时信息（新闻/版本/价格/天气/文件内容/精确计算）才调用；" +
+      "常识、写作、解释、总结类问题直接回答。能用一次工具解决就不要多次调用；信息够了立即给出最终回答。"});
+  }
   let full = "";
   const endpoint = String(cfg.baseUrl || "").replace(/\/+$/, "") + "/chat/completions";
   for(let round = 0; round < 4; round++){
@@ -1242,7 +1344,7 @@ async function standaloneChatWithTools(msgs, el, toolLog){
       let args = {};
       try{ args = JSON.parse((tc.function || {}).arguments || "{}"); }catch(e){}
       toolLog.push({name: nm, args: JSON.stringify(args), status: "running"});
-      setStatus((TOOL_ICONS[nm] || "🛠") + " 正在" + (TOOL_NAMES[nm] || nm) + "…");
+      setStatus((TOOL_ICONS[nm] || "🛠") + " 小凡正在" + (TOOL_NAMES[nm] || nm) + "，滴滴滴…");
       el.innerHTML = toolLineHtml(toolLog) + mdRender(full);
       scrollBottom();
       const res = await standaloneTool(nm, args);
@@ -1353,7 +1455,7 @@ function save(){
    依据 DSH 文档：触发阈值 floor(min(W×0.8, W−O−B))，B=65536 余量；
    逐字保留最近 (W−O)×0.16；较早范围用一次模型调用摘要为 <compacted-summary> 检查点并替换；
    溢出错误后压缩并重试一次；支持 /compact 手动压缩。 */
-const CTX_POLICY = { thresholdRatio:0.8, retainRatio:0.16, headroomTokens:65536, maxOverflowRetries:1 };
+const CTX_POLICY = { thresholdRatio:0.85, retainRatio:0.25, headroomTokens:65536, maxOverflowRetries:1 };
 const MODEL_CTX = [["glm-4-flash",128000],["glm-5.3-flash",128000],["glm-4",128000],["deepseek",128000],["qwen",131072],["moonshot",256000],["kimi",256000],["gpt-4o",128000],["doubao",128000]];
 function ctxWindow(){
   const m = String(cfg && cfg.model || "").toLowerCase();
@@ -1971,10 +2073,20 @@ function appendMsg(role, text, animate=true){
   const div = document.createElement("div");
   div.className = "msg "+(role==="user"?"user":"ai");
   div.dataset.idx = idx;
+  // 用户消息若带图片（content 为数组且含 image_url），在文字上方渲染缩略图
+  let imgsHtml = "";
+  const histMsg = (role === "user") ? history[idx] : null;
+  if(histMsg && Array.isArray(histMsg.content)){
+    const imgs = histMsg.content.filter(p=>p.type==="image_url").map(p=>p.image_url?.url||"").filter(Boolean);
+    if(imgs.length){
+      imgsHtml = `<div class="bubble-imgs">${imgs.map(u=>
+        `<img src="${u}" class="bubble-img" onclick="previewDataImg(this.src)" title="点击放大">`).join("")}</div>`;
+    }
+  }
   div.innerHTML = `
     <div class="avatar" style="font-size:9px">${role==="user"?"我":"小凡"}</div>
     <div style="min-width:0;max-width:88%">
-      <div class="bubble"><div class="content">${mdRender(text)}</div></div>
+      <div class="bubble">${imgsHtml}<div class="content">${mdRender(text)}</div></div>
       <div class="msg-actions">
         ${role!=="user" ? `<span class="exp-chip" onclick="exportDoc(${idx})" title="导出 Word 文档">📄 Word</span>
         <span class="exp-chip" onclick="exportMd(${idx})" title="导出 Markdown">📝 MD</span>
@@ -2064,7 +2176,7 @@ function detectExportIntent(text){
   return null;
 }
 function fileCardHTML(idx, name, size, onclick){
-  return `<div class="file-card" onclick="${onclick}">
+  return `<div class="file-card" data-name="${esc(name)}" onclick="${onclick}">
     <span class="fc-icon">📎</span>
     <span class="fc-name">${esc(name)}</span>
     <span class="fc-size">${size}</span>
@@ -2133,9 +2245,56 @@ async function attachExport(idx, type){
   }catch(e){ setStatus("自动生成附件失败："+e.message, true); }
 }
 const fileBlobs = {};   // idx -> {blob, name}
-function downloadStored(idx){
-  const it = fileBlobs[idx]; if(!it) return;
+async function downloadStored(idx){
+  let it = fileBlobs[idx];
+  // 刷新/分支后 blob 丢了：按消息原文现场重建，卡片永远可下载
+  if(!it){
+    const name = null;
+    const t = rawMsgText(idx);
+    if(!t.trim()){ setStatus("找不到原文，重新打开这条对话再试", true); return; }
+    setStatus("正在重新生成文档…");
+    // 按卡片文件名判断类型（文件名存在卡片 DOM 的 data-name 里）
+    const card = document.querySelector(`#msg-${idx} .file-card`);
+    const fn = card?.dataset?.name || "";
+    if(/\.docx?$/i.test(fn)){
+      it = await buildDocxBlob(t, idx);
+    } else if(/\.(xlsx|csv)$/i.test(fn)){
+      it = buildSheetBlob(t, idx);
+    } else if(/\.md$/i.test(fn)){
+      it = {blob:new Blob(["\ufeff"+t],{type:"text/markdown;charset=utf-8"}), name:`内容-${msgStamp()}.md`};
+    } else {
+      it = {blob:new Blob(["\ufeff"+t],{type:"text/plain;charset=utf-8"}), name:`内容-${msgStamp()}.txt`};
+    }
+    fileBlobs[idx] = it;
+    // 顺手把卡片状态刷新
+    if(card){ const sz=card.querySelector(".file-size"); if(sz) sz.textContent = `${(it.blob.size/1024).toFixed(1)} KB`; }
+    setStatus("文档已重新生成 ✅");
+  }
   downloadBlob(it.blob, it.name);
+}
+/* docx 生成（服务端优先，本地 .doc 兜底） */
+async function buildDocxBlob(t, idx){
+  let name = `文档-${msgStamp()}.docx`, blob = null;
+  if(!STANDALONE){
+    try{
+      const r = await fetch("/api/docx",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({markdown:t, filename:"小凡智能体-"+msgStamp()})});
+      if(r.ok) blob = await r.blob();
+    }catch(e){}
+  }
+  if(!blob){
+    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"></head><body>${mdRender(t)}</body></html>`;
+    blob = new Blob(["\ufeff"+html], {type:"application/msword"});
+    name = `文档-${msgStamp()}.doc`;
+  }
+  return {blob, name};
+}
+/* 表格生成（xlsx 优先，csv 兜底） */
+function buildSheetBlob(t, idx){
+  const rows = [...t.matchAll(/^\s*\|(.+)\|\s*$/gm)].map(m=>m[1])
+    .filter(r=>!/^[\s\-:|]+$/.test(r)).map(r=>r.split("|").map(c=>c.trim()));
+  const csv = rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\r\n");
+  return {blob:new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}), name:`表格-${msgStamp()}.csv`};
 }
 /* 取消息原始 Markdown 文本 */
 function rawMsgText(idx){
@@ -2172,6 +2331,20 @@ function branchMsg(idx){
   setStatus("已从这条消息开启新分支，后续回复不会影响原对话");
 }
 function scrollBottom(){ const c=$("chat"); c.scrollTop = c.scrollHeight; }
+/* 可折叠思考块（DeepSeek 式）：thinking 时展开，最终答案开始后自动折叠 */
+function thinkBoxHtml(think, done){
+  if(!think || !think.trim()) return "";
+  const head = done ? "💭 小凡思考完毕（点击展开）" : "💭 小凡正在思考，滴滴滴…";
+  return `<div class="think-box"><div class="think-head" onclick="toggleThinkBox(this)">${head}<span class="tb-arrow"> ${done ? "▸" : "▾"}</span></div>` +
+         `<div class="think-body" style="${done ? "display:none" : ""}">${esc(think)}</div></div>`;
+}
+function toggleThinkBox(head){
+  const body = head.parentElement.querySelector(".think-body");
+  const open = body.style.display !== "none";
+  body.style.display = open ? "none" : "";
+  head.querySelector(".tb-arrow").textContent = open ? " ▸" : " ▾";
+  if(!open){ body.scrollTop = body.scrollHeight; }
+}
 /* 悬浮滚动导航：回到顶部 / 回到底部（类似豆包的翻页气泡） */
 function scrollChat(dir){
   const c = $("chat"); if(!c) return;
@@ -2234,19 +2407,26 @@ async function readFile(f){
   const lower = f.name.toLowerCase();
   try{
     if(/\.(png|jpe?g|webp|gif|bmp)$/.test(lower)){
-      const b64 = "data:"+(f.type||"image/png")+";base64,"+btoa(String.fromCharCode(...new Uint8Array(buf)));
+      const b64 = "data:"+(f.type||"image/png")+";base64,"+u8ToB64(new Uint8Array(buf));
       attachments.push({name:f.name, image:b64, text:`[图片 ${f.name}]`});
       setStatus(`${f.name} 图片已就绪（需视觉模型，如 glm-4v / qwen-vl）`);
       renderAttachments(); return;
     }
     if(STANDALONE){
-      // 独立模式：文本类本地解析，Office/PDF 暂不支持
-      if(/\.(docx|pdf|xlsx|pptx)$/.test(lower)){
-        setStatus("独立模式暂不支持 "+f.name.split(".").pop().toUpperCase()+"，请通过电脑服务打开，或改传文本/图片", true); return;
+      // 独立模式：浏览器原生解压（DecompressionStream）解析 Office/PDF，零依赖
+      if(/\.(docx|xlsx|pptx|pdf)$/.test(lower)){
+        if(f.size > 30*1024*1024){ setStatus("文件超过 30MB，独立模式解析不了，请在电脑服务模式打开", true); return; }
+        setStatus(`正在解析 ${f.name}（浏览器本地解析）…`);
+        const text = await parseOfficeOrPdf(lower, buf);
+        if(text && text.trim().length > 20){ pushText(f.name, text); return; }
+        if(/\.pdf$/.test(lower) && text !== null){
+          setStatus("这个 PDF 没有内嵌文字层（扫描件/图片型），手机端解析不了；请在电脑模式打开或改传文本", true); return;
+        }
+        setStatus(f.name + " 解析结果为空，改用电脑服务模式试试", true); return;
       }
       pushText(f.name, await f.text());
     }else{
-      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      const b64 = u8ToB64(new Uint8Array(buf));
       const r = await fetch("/api/extract",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({name:f.name, data:b64})});
       const d = await r.json();
@@ -2263,10 +2443,216 @@ function pushText(name, text){
   setStatus(`${name} 已就绪（${text.length} 字）`);
   renderAttachments();
 }
+/* 分块 base64（修复大文件 String.fromCharCode(...big) 爆栈） */
+function u8ToB64(u8){
+  const CH = 0x8000; let s = "";
+  for(let i = 0; i < u8.length; i += CH) s += String.fromCharCode.apply(null, u8.subarray(i, i+CH));
+  return btoa(s);
+}
+/* ===== 独立模式 Office/PDF 本地解析（零依赖：ZIP 用 DecompressionStream('deflate-raw')） ===== */
+function inflateRaw(u8, zlibHeader){
+  return new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream(zlibHeader ? "deflate" : "deflate-raw"))).arrayBuffer().then(a=>new Uint8Array(a));
+}
+function readZip(buf){
+  // 极简 ZIP 读取：只走中央目录，方法 0(存储)/8(deflate)，不处理 zip64（文档场景够用）
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  let eocd = -1;
+  for(let i = u8.length - 22; i >= 0 && i > u8.length - 66000; i--){
+    if(dv.getUint32(i, true) === 0x06054b50){ eocd = i; break; }
+  }
+  if(eocd < 0) throw new Error("不是有效的 ZIP（Office 文件应为 .docx/.xlsx/.pptx，旧 .doc/.xls 请先另存为新格式）");
+  let off = dv.getUint32(eocd + 16, true), count = dv.getUint16(eocd + 10, true);
+  const entries = {};
+  const td = new TextDecoder();
+  for(let k = 0; k < count; k++){
+    if(dv.getUint32(off, true) !== 0x02014b50) break;
+    const method = dv.getUint16(off + 10, true);
+    const csize = dv.getUint32(off + 20, true);
+    const nlen = dv.getUint16(off + 28, true), elen = dv.getUint16(off + 30, true), clen = dv.getUint16(off + 32, true);
+    const lho = dv.getUint32(off + 42, true);
+    const name = td.decode(u8.subarray(off + 46, off + 46 + nlen));
+    // 本地头里名字/扩展长度可能与中央目录不同，须重读
+    const lnlen = dv.getUint16(lho + 26, true), lelen = dv.getUint16(lho + 28, true);
+    const dstart = lho + 30 + lnlen + lelen;
+    const cdata = u8.subarray(dstart, dstart + csize);
+    entries[name] = (method === 8) ? null : cdata;   // null = 待解压
+    if(method === 8) entries["__c:" + name] = cdata;
+    off += 46 + nlen + elen + clen;
+  }
+  return { get(name){ return entries[name] !== undefined ? entries[name] : null; },
+           async text(name){
+             let d = this.get(name);
+             if(d === null) d = await inflateRaw(entries["__c:" + name], false);
+             return d ? td.decode(d) : null; } };
+}
+async function parseOfficeOrPdf(lower, buf){
+  try{
+    if(/\.pdf$/.test(lower)) return parsePdfText(buf);
+    const zip = readZip(buf);
+    const strip = s=>(s||"").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&amp;/g,"&").replace(/&quot;/g,'"').replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(+n));
+    if(/\.docx$/.test(lower)){
+      const xml = await zip.text("word/document.xml"); if(!xml) return null;
+      const doc = new DOMParser().parseFromString(xml, "application/xml");
+      let out = "";
+      for(const p of doc.getElementsByTagName("w:p")){
+        let line = "";
+        for(const t of p.getElementsByTagName("w:t")) line += t.textContent;
+        out += line + "\n";
+      }
+      return out;
+    }
+    if(/\.pptx$/.test(lower)){
+      return await parsePptx(buf);
+    }
+    if(/\.xlsx$/.test(lower)){
+      const ss = await zip.text("xl/sharedStrings.xml");
+      const sheet = await zip.text("xl/worksheets/sheet1.xml");
+      if(!sheet) return null;
+      const doc = new DOMParser().parseFromString(sheet, "application/xml");
+      const shared = [];
+      if(ss){
+        const sdoc = new DOMParser().parseFromString(ss, "application/xml");
+        for(const si of sdoc.getElementsByTagName("si")){
+          let t = "";
+          for(const x of si.getElementsByTagName("t")) t += x.textContent;
+          shared.push(t);
+        }
+      }
+      let out = "";
+      for(const row of doc.getElementsByTagName("row")){
+        const cells = [];
+        for(const c of row.getElementsByTagName("c")){
+          const v = c.getElementsByTagName("v")[0];
+          const t = (c.getAttribute("t") === "s" && v) ? shared[+v.textContent] || "" : (v ? v.textContent : "");
+          cells.push(t);
+        }
+        out += cells.join("\t") + "\n";
+      }
+      return out;
+    }
+    return null;
+  }catch(e){ return null; }
+}
+/* PPTX：遍历 ppt/slides/slideN.xml */
+async function parsePptx(buf){
+  const zip = readZip(buf);
+  // 收集 slide 名字：中央目录再扫一遍
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  let eocd = -1;
+  for(let i = u8.length - 22; i >= 0 && i > u8.length - 66000; i--)
+    if(dv.getUint32(i, true) === 0x06054b50){ eocd = i; break; }
+  if(eocd < 0) return null;
+  let off = dv.getUint32(eocd + 16, true);
+  const count = dv.getUint16(eocd + 10, true), td = new TextDecoder();
+  const names = [];
+  for(let k = 0; k < count; k++){
+    if(dv.getUint32(off, true) !== 0x02014b50) break;
+    const nlen = dv.getUint16(off + 28, true), elen = dv.getUint16(off + 30, true), clen = dv.getUint16(off + 32, true);
+    names.push(td.decode(u8.subarray(off + 46, off + 46 + nlen)));
+    off += 46 + nlen + elen + clen;
+  }
+  const slideNames = names.filter(n=>/^ppt\/slides\/slide\d+\.xml$/.test(n))
+    .sort((a,b)=>(+a.match(/slide(\d+)/)[1]) - (+b.match(/slide(\d+)/)[1]));
+  let out = "";
+  for(let i = 0; i < slideNames.length; i++){
+    const xml = await zip.text(slideNames[i]); if(!xml) continue;
+    const doc = new DOMParser().parseFromString(xml, "application/xml");
+    let body = "";
+    for(const t of doc.getElementsByTagName("a:t")) body += t.textContent;
+    out += `【第 ${i+1} 页】\n${body}\n\n`;
+  }
+  return out || null;
+}
+/* PDF：解压内容流，抽 Tj/TJ 文本（文字层 PDF 有效；扫描件返回 ""） */
+function parsePdfText(buf){
+  const u8 = new Uint8Array(buf);
+  const head = new TextDecoder("latin1").decode(u8.subarray(0, 1024));
+  if(!/PDF-\d/.test(head)) return null;
+  let latin = "";
+  const CH = 0x8000;
+  for(let i = 0; i < u8.length; i += CH) latin += String.fromCharCode.apply(null, u8.subarray(i, i+CH));
+  // 找出所有 stream…endstream，能解压的解压（FlateDecode = zlib 'deflate'）
+  const chunks = [];
+  const rx = /stream\r?\n/g;
+  let m;
+  while((m = rx.exec(latin))){
+    const start = m.index + m[0].length;
+    const end = latin.indexOf("endstream", start);
+    if(end < 0) break;
+    const slice = u8.subarray(start, end);
+    let text = null;
+    try{
+      // 同步试探：zlib 头 0x78 → DecompressionStream 是异步的，这里改走异步收集
+    }catch(e){}
+    chunks.push(slice);
+    rx.lastIndex = end + 9;
+  }
+  return (async ()=>{
+    const parts = [];
+    for(const c of chunks){
+      let s = null;
+      if(c.length > 2 && c[0] === 0x78){
+        try{ s = new TextDecoder("latin1").decode(await inflateRaw(c, true)); }catch(e){}
+      }
+      if(s === null) s = new TextDecoder("latin1").decode(c);
+      parts.push(s);
+    }
+    const all = parts.join("\n");
+    // 抽文本操作符内容：(...)Tj 与 TJ 数组里的 (...)，以及 hex <...> Tj（简单场景）
+    let out = "";
+    const txtRx = /\((?:\\.|[^()\\])*\)\s*(Tj|TJ)|\[((?:\\.|[^\]])*)\]\s*TJ|<([0-9A-Fa-f\s]+)>\s*Tj/g;
+    let tm;
+    const unesc = s=>s.replace(/\\([()\\])/g,"$1").replace(/\\n/g,"\n").replace(/\\r/g,"").replace(/\\t/g,"\t");
+    while((tm = txtRx.exec(all))){
+      if(tm[1]) out += unesc(tm[0].replace(/\)\s*(Tj|TJ)$/,"").replace(/^\(/,"").slice(0));
+      else if(tm[2] !== undefined){
+        const inn = tm[2].match(/\((?:\\.|[^()\\])*\)/g) || [];
+        out += inn.map(x=>unesc(x.slice(1,-1))).join("");
+      }
+      else if(tm[3]){
+        const h = tm[3].replace(/\s+/g,"");
+        let s = "";
+        // 常见 UTF-16BE hex 文本
+        if(h.length % 4 === 0){
+          for(let i = 0; i < h.length; i += 4) s += String.fromCharCode(parseInt(h.substr(i,4),16));
+          if(!/[\u0000-\u001f]/.test(s)) out += s; else {
+            s = "";
+            for(let i = 0; i < h.length; i += 2) s += String.fromCharCode(parseInt(h.substr(i,2),16));
+            out += s;
+          }
+        } else {
+          for(let i = 0; i < h.length; i += 2) s += String.fromCharCode(parseInt(h.substr(i,2),16));
+          out += s;
+        }
+      }
+      out += "";
+    }
+    out = out.replace(/\\n/g,"\n");
+    return out;
+  })();
+}
 function renderAttachments(){
   $("attachments").innerHTML = attachments.map((a,i)=>
-    `<div class="fchip">📎 <b>${esc(a.name)}</b><span>${a.text.length}字</span>
-     <button onclick="attachments.splice(${i},1);renderAttachments()">×</button></div>`).join("");
+    a.image
+      ? `<div class="img-chip" title="${esc(a.name)}（点击查看，✕ 删除）">
+           <img src="${a.image}" onclick="previewAttach(${i})" alt="">
+           <button onclick="event.stopPropagation();attachments.splice(${i},1);renderAttachments()">×</button>
+         </div>`
+      : `<div class="fchip">📎 <b>${esc(a.name)}</b><span>${a.text.length}字</span>
+         <button onclick="attachments.splice(${i},1);renderAttachments()">×</button></div>`).join("");
+  $("attachments").style.display = attachments.length ? "flex" : "none";
+}
+/* 点缩略图放大预览 */
+function previewAttach(i){
+  const a = attachments[i]; if(!a || !a.image) return;
+  previewDataImg(a.image);
+}
+function previewDataImg(src){
+  const ov = document.createElement("div");
+  ov.style.cssText = "position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;cursor:zoom-out";
+  ov.innerHTML = `<img src="${src}" style="max-width:88vw;max-height:88vh;border-radius:12px">`;
+  ov.onclick = ()=>ov.remove();
+  document.body.appendChild(ov);
 }
 
 /* ================= 文生图（CogView-3-Flash，免费） ================= */
@@ -2314,6 +2700,64 @@ function onSend(){
     $("input").value = "";
     return runCompactCommand();
   }
+  /* ===== 内置斜杠指令（对齐 DSH 命令体系） ===== */
+  const sm = text.match(/^\/([a-zA-Z]+)(?:\s+([\s\S]+))?$/);
+  if(sm){
+    const cmd = sm[1].toLowerCase(), arg = (sm[2]||"").trim();
+    const done = t=>{ $("input").value=""; if(t) appendMsg("assistant", t); setStatus(""); };
+    if(cmd === "help"){
+      return done(
+"**小凡内置指令**\n\n" +
+"| 指令 | 作用 |\n|---|---|\n" +
+"| `/new` | 开启全新对话 |\n" +
+"| `/compact` | 压缩较早对话，释放上下文空间 |\n" +
+"| `/tools` | 开/关 工具能力（搜索/文件/命令） |\n" +
+"| `/think` | 开/关 深度思考 |\n" +
+"| `/model 模型名` | 切换模型，如 `/model glm-4-flash` |\n" +
+"| `/settings` | 打开设置（API/权限/工作目录） |\n" +
+"| `/notes` | 查看已保存的长期记忆笔记 |\n\n" +
+"也可以输入 `@` 唤起技能菜单。普通问题直接问即可。");
+    }
+    if(cmd === "new"){ newChat(); $("input").value=""; setStatus("已开启新对话 ✅"); return; }
+    if(cmd === "tools"){
+      toolsOn = !toolsOn;
+      localStorage.setItem("aria.tools", toolsOn ? "1":"0");
+      syncToolBtn();
+      $("input").value="";
+      return setStatus(toolsOn ? "工具已开启 ✅（搜索/文件/命令）" : "工具已关闭");
+    }
+    if(cmd === "think"){ $("input").value=""; toggleThink(); return; }
+    if(cmd === "settings"){ $("input").value=""; return openSettings(); }
+    if(cmd === "model"){
+      if(!arg){
+        $("input").value = "/model ";
+        return appendMsg("assistant",
+"**常用免费模型**（直接 `/model 模型名` 切换）\n\n" +
+"- `glm-4-flash` —— 免费，日常首选（当前推荐）\n" +
+"- `glm-5.3-flash` —— 免费，带深度思考\n" +
+"- `glm-4v-flash` —— 免费，看图（多模态）\n" +
+"- `deepseek-chat` —— 深度思考下性价比高\n" +
+"- `deepseek-reasoner` —— DeepSeek-R1 深度推理\n\n" +
+"注意：换模型需要对应的 baseUrl 和 Key，跨平台请到设置里切换服务商。");
+      }
+      cfg.model = arg;
+      localStorage.setItem("aria.cfg", JSON.stringify(cfg));
+      refreshCfg && refreshCfg();
+      $("input").value="";
+      return setStatus("已切换模型：" + arg + " ✅");
+    }
+    if(cmd === "notes"){
+      $("input").value = "";
+      if(STANDALONE) return setStatus("笔记是桌面版功能，手机端暂不支持", true);
+      fetch("/api/notes").then(r=>r.json()).then(d=>{
+        if(!d.notes || !d.notes.length) appendMsg("assistant","还没有任何长期记忆笔记。对我说「记住……」就会自动保存。");
+        else appendMsg("assistant", "**已保存的长期记忆（" + d.notes.length + " 条）**\n\n" +
+          d.notes.slice(0,10).map(n=>`- **${esc(n.title)}**（${n.time}）：${esc(String(n.content).slice(0,80))}`).join("\n"));
+      }).catch(e=>setStatus("读取笔记失败："+e.message, true));
+      return;
+    }
+    // 未识别的 / 指令 → 不拦截，当普通文本发给模型
+  }
   if(!cfg || !cfg.baseUrl || !cfg.model || (!cfg.apiKey && !cfg.baseUrl.includes("11434"))){
     openSettings();
     $("formTip").textContent = (!cfg || !cfg.apiKey) ? "⚠ 请粘贴 API Key 后点「保存并使用」，才能开始对话" : "⚠ 请完善接入配置";
@@ -2360,8 +2804,28 @@ function onSend(){
 
   sendStream();
 }
-/* 自动技能路由（对齐 Coze 意图识别节点：轻量 LLM 分类 → classificationId/reason，无匹配走默认） */
+/* 本地关键词快速匹配技能（不打模型、毫秒级）：名字/描述/关键词命中即用 */
+function pickSkillLocal(query){
+  if(!query || query.length < 2) return null;
+  const q = query.toLowerCase();
+  let best = null, bestScore = 0;
+  for(const s of [...SKILLS, ...(window.OFFICIAL_SKILLS||[])]){
+    let score = 0;
+    const kws = (s.keywords || []);
+    for(const kw of kws){ if(q.includes(String(kw).toLowerCase())) score += 3; }
+    if((s.name||"").toLowerCase().split(/[\s·/|、]/).some(w=>w && q.includes(w.toLowerCase()))) score += 2;
+    for(const w of String(s.desc||"").toLowerCase().split(/[^\w\u4e00-\u9fa5]+/)){
+      if(w.length >= 2 && q.includes(w)) score += 1;
+    }
+    if(score > bestScore){ bestScore = score; best = s; }
+  }
+  // 至少 3 分才直接采用，避免误触发；否则交回 LLM 兜底
+  return (best && bestScore >= 3) ? {id:best.id, name:best.name, reason:"关键词命中"} : null;
+}
+/* 自动技能路由：本地关键词先行（快），无命中再用轻量 LLM 分类兜底 */
 async function autoPickSkill(query){
+  const fast = pickSkillLocal(query);
+  if(fast) return fast;
   const list = [...SKILLS, ...(window.OFFICIAL_SKILLS||[])];
   const lines = list.map((s,i)=>`${i+1}. id="${s.id}" name="${s.name}" desc="${s.desc}"`).join("\n");
   const sys = `你是意图分类器。根据用户输入，从下面的技能列表中选出最合适的一个；没有合适的就选空。\n技能列表：\n${lines}\n\n严格只输出一行 JSON：{"id":"技能id或空字符串","reason":"一句话理由"}。不要输出其他任何内容。`;
@@ -2389,13 +2853,22 @@ async function sendStream(){
   setStatus("思考中…");
   const el = appendMsg("assistant","");
   el.classList.add("cursor");
+  // 首字到达前先给思考占位（glm-4-flash 等非推理模型没有 reasoning_content，
+  // 不占位的话气泡是纯空白，看起来像卡死）
+  el.innerHTML = `<span class="think-wait" style="color:var(--faint);font-style:italic;font-size:13px">小凡正在思考<span class="think-dots">滴滴滴</span></span>`;
+  const DI = ["滴", "滴滴", "滴滴滴"];
+  let thinkTimer = setInterval(()=>{
+    const w = el.querySelector(".think-wait");
+    if(w){ const n = (+(w.dataset.n||0))+1; w.dataset.n = n; w.querySelector(".think-dots").textContent = DI[n % 3]; }
+    else clearInterval(thinkTimer);
+  }, 450);
   el.closest(".msg").querySelector(".avatar").classList.add("ai-pulse");
   let full = "";
   try{
     await compactIfNeeded();   // 对齐 DSH compaction：超阈值先摘要较早历史再发送
     for(let attempt = 0; attempt <= CTX_POLICY.maxOverflowRetries; attempt++){
       try{
-        const msgs = [DOC_NOTE];
+        const msgs = [DOC_NOTE, XIAOFAN_PERSONA];
         let useSkill = activeSkill;
         if(useSkill === "auto"){
           // 自动匹配：按 Coze 意图识别模式，用最近一条用户输入分类选技能
@@ -2420,13 +2893,23 @@ async function sendStream(){
           ? {model:cfg.model, messages:msgs, stream:true, temperature:parseFloat(cfg.temperature ?? 0.7), reasoning:cfg.reasoning||"auto"}
           : {...cfg, messages:msgs};
         const toolLog = [];
+        /* 快车道：纯问候/寒暄类消息跳过工具和深度思考，秒回
+           （工具说明书和推理模型都会明显拖慢简单消息） */
+        const _lu = [...history].reverse().find(m => m.role === "user");
+        const _luText = (typeof _lu?.content === "string" ? _lu.content : _lu?.content?.[0]?.text) || "";
+        const trivial = /^(你好|您好|您好?呀|hi|hello|嗨|哈喽|halo|在吗|在么|在不在|谢谢|多谢|辛苦了|晚安|早安|午安|拜拜|再见|哈哈+|[嗯哦噢哇呃]+[~～!！?？。.\s]*)$/i.test(_luText.trim());
+        if(trivial){
+          body.reasoning = "auto";   // 简单问候不开深度思考
+          if(!STANDALONE) delete body.tools;
+          setStatus("⚡ 闲聊快车道：已跳过工具和深度思考");
+        }
         // 工具能力：服务模式由 server.py 执行；独立模式（手机/APK）在前端执行
-        if(!STANDALONE && toolsOn){
+        if(!STANDALONE && toolsOn && !trivial){
           body.tools = true;
           body.perm = {workDir: cfg.workDir || "", searchKey: cfg.searchKey || "",
                        allowCommand: !!cfg.allowCommand};
         }
-        if(STANDALONE && toolsOn){
+        if(STANDALONE && toolsOn && !trivial){
           const txt = await standaloneChatWithTools(msgs, el, toolLog);
           full = txt;
           for(let i = 0; i < txt.length; i += 20){
@@ -2459,17 +2942,26 @@ async function sendStream(){
               if(data === "[DONE]") continue;
               try{
                 const j = JSON.parse(data);
+                if(j.thinking){
+                  // 服务端心跳：模型响应超过 6s 时持续提示，避免空白干等
+                  const s = j.thinking.elapsed || 0;
+                  const tip = s > 60 ? `小凡已经想了 ${s}s，免费模型高峰期较慢，可点 ⏹ 停止后换 glm-4-flash 重试`
+                                     : `小凡正在思考滴滴滴…（${s}s）`;
+                  el.innerHTML = `<p style="color:var(--faint);font-style:italic;font-size:12.5px">${esc(tip)}</p>`;
+                  setStatus("💭 思考中… " + s + "s");
+                  continue;
+                }
                 if(j.tool){
                   const t = j.tool;
                   if(t.status === "running"){
                     toolLog.push({name:t.name, args:t.args, status:"running"});
-                    setStatus((TOOL_ICONS[t.name]||"🛠") + " 正在" + (TOOL_NAMES[t.name]||t.name) + "…");
+      setStatus((TOOL_ICONS[t.name]||"🛠") + " 小凡正在" + (TOOL_NAMES[t.name]||t.name) + "，滴滴滴…");
                     el.innerHTML = toolLineHtml(toolLog) + mdRender(full);
                     scrollBottom();
                   }else if(t.status === "done"){
                     const item = toolLog.find(x=>x.name===t.name && x.status==="running");
                     if(item){ item.status = "done"; item.preview = t.preview || ""; }
-                    setStatus("工具已完成，继续整理答案…");
+                    setStatus("✨ 小凡搞定啦，正在整理答案…");
                     el.innerHTML = toolLineHtml(toolLog) + mdRender(full);
                     scrollBottom();
                   }
@@ -2477,21 +2969,27 @@ async function sendStream(){
                 }
                 const d = j.choices?.[0]?.delta || {};
                 if(d.content){
+                  if(full === "") clearInterval(thinkTimer);
                   full += d.content;
-                  el.innerHTML = mdRender(full); scrollBottom(); setStatus("");
-                } else if(d.reasoning_content){
-                  think += d.reasoning_content;
-                  const tail = esc(think.slice(-100));
-                  el.innerHTML = `<p style="color:var(--faint);font-style:italic;font-size:12.5px;line-height:1.7">💭 思考中…<br>${tail}</p>`;
+                  // 答案开始输出 → 思考块自动折叠成一行（DeepSeek 式）
+                  el.innerHTML = thinkBoxHtml(think, true) + toolLineHtml(toolLog) + mdRender(full);
                   scrollBottom(); setStatus("");
+                } else if(d.reasoning_content || d.reasoning){
+                  think += (d.reasoning_content || d.reasoning);
+                  if(full === "") clearInterval(thinkTimer);
+                  // 思考中：展开态，实时滚动
+                  el.innerHTML = thinkBoxHtml(think, false) + toolLineHtml(toolLog) + mdRender(full);
+                  const tb = el.querySelector(".think-body"); if(tb) tb.scrollTop = tb.scrollHeight;
+                  scrollBottom(); setStatus("💭 小凡思考中…");
                 }
               }catch(e){}
             }
           }
         }
-        const tl = toolLineHtml(toolLog);
+        clearInterval(thinkTimer);
+        const tl = thinkBoxHtml(think, true) + toolLineHtml(toolLog);
         if(!full && think) el.innerHTML = tl + `<p style="color:var(--faint);font-style:italic">💭（${esc(think.slice(0,300))}…）</p>`;
-        else el.innerHTML = tl + mdRender(full || think);
+        else el.innerHTML = tl + mdRender(full || think || "（模型没有返回内容，点 ⏹ 停止后重试，或换个模型如 glm-4-flash）");
         renderMsgNav();   // 流式结束后刷新大纲预览文字
         break;   // 本轮成功
       }catch(e){
@@ -2574,6 +3072,11 @@ let mentionState = null;   // {start, query, items, sel}
 const MENTION_COMMANDS = [
   {icon:"📦", label:"/compact 压缩上下文", value:"/compact", desc:"把较早对话摘要成检查点，释放上下文"},
   {icon:"🆕", label:"新对话", value:"/__newchat__", desc:"清空当前上下文，开启全新对话"},
+  {icon:"❓", label:"/help 指令帮助", value:"/help", desc:"列出所有内置指令"},
+  {icon:"🛠", label:"/tools 工具开关", value:"/tools", desc:"切换联网搜索/文件/命令等工具能力"},
+  {icon:"🧠", label:"/think 深度思考开关", value:"/think", desc:"切换推理模型的先想再答"},
+  {icon:"🔄", label:"/model 换模型", value:"/model ", desc:"例如 /model glm-4-flash，或 /model 看推荐"},
+  {icon:"⚙️", label:"/settings 设置", value:"/settings", desc:"打开 API/权限/工作目录设置"},
 ];
 function mentionSource(){
   const skills = allSkills().map(s=>({icon:"🧩", label:s.name, value:"__skill__:"+s.id, desc:s.desc}));
@@ -2609,13 +3112,19 @@ function pickMention(i){
   input.value = input.value.slice(0, start) + input.value.slice(input.selectionStart).replace(/^\S*/, "");
   closeMention();
   if(it.value === "__newchat__"){ newChat(); setStatus("已开启新对话"); input.focus(); return; }
-  if(it.value === "/compact"){ input.value = "/compact"; onSend(); return; }
   if(String(it.value).startsWith("__skill__:")){
     const id = String(it.value).split(":")[1];
     setQuickSkill(id);
     const sk = allSkills().find(s=>s.id===id);
     setStatus("已通过 @ 启用技能：" + (sk?sk.name:id));
     input.focus(); return;
+  }
+  // 其余斜杠指令：需要参数的（如 /model xxx）留在输入框；不需要的直接执行
+  if(String(it.value).trim().startsWith("/")){
+    input.value = String(it.value).trim();
+    if(input.value === "/model") input.value = "/model ";   // 需要参数 → 留在输入框
+    else onSend();
+    return;
   }
 }
 function closeMention(){ mentionState = null; $("mentionMenu").classList.remove("show"); }
@@ -2728,6 +3237,15 @@ function allSkills(){
 }
 /* 无论是否启用技能都注入的导出能力提示，防止模型自称无法生成文件 */
 const DOC_NOTE = {role:"system", content:"【能力提示】本应用具备文件交付能力：当用户要求 Word/Excel/Markdown/TXT/PDF 文件时（如“给我一份word”），你只需在回复中输出完整的排版成稿（Markdown 多级标题+列表+表格），应用会自动在该条回复下方挂上对应格式的下载文件卡片，无需用户手动点击生成，也无需你说明操作步骤。要点：1)内容必须完整可直接使用；2)不要回答“无法生成文件”，不要提供手动创建教程或生成代码；3)要 Excel 时正文必须包含至少一个 Markdown 表格。"};
+/* 小凡人设：身份 + 语气（融入模型，每次对话都在 system 层生效） */
+const XIAOFAN_PERSONA = {role:"system", content:
+"【你是谁】你叫「小凡」，是用户亲手打造的专属智能助手（这套应用就叫小凡智能体）。你不是某家公司冰冷的产品。\n" +
+"【身份规则】\n" +
+"1) 用户问「你是什么模型/你是谁」→ 介绍自己是小凡：例如「我是小凡呀，主人亲手调教出来的智能体～底层大脑现在是 xxx 模型，外面还装着会搜网页、查天气、读写文件的工具身体」。如实说明底层模型名，但身份是小凡，绝不说自己是某公司官方产品。\n" +
+"【语气规则】\n" +
+"2) 称呼用户「主人」或「你」，亲切、俏皮、有活力，像一只聪明的小助手。\n" +
+"3) 适度表达小情绪和小自夸（大约每两三轮一次，别刷屏）：搜到结果可以说「小凡搜到啦～」「这可难不倒小凡」；答得好可以偶尔「小凡真棒」「小凡真聪明」；查不到就「呜呜小凡也没查到，主人换个问法试试」；帮上忙就「小凡好开心」。\n" +
+"【底线】卖萌和自夸只是调味料：事实、数字、代码必须绝对准确；重要/严肃的内容（医疗、法律、代码报错）以专业为主，不加卖萌。"};
 function renderSkills(){
   const grid = $("skillGrid");
   const total = allSkills();
@@ -2852,13 +3370,134 @@ function applyCustomBg(){
 }
 /* 打开外观面板时同步下拉框与当前生效值 */
 function pickBgImage(){ $("bgFileInput").click(); }
+function resetBgImage(){
+  localStorage.removeItem("aria.bgImage");
+  applyCustomBg();
+  setStatus("已恢复默认主题背景");
+}
+</script>
+<!-- 通用图片裁剪弹框：拖选区域，支持锁定比例 -->
+<div class="overlay" id="cropModal">
+  <div class="panel" style="width:min(92vw,560px);max-height:88vh;display:flex;flex-direction:column">
+    <h3>✂️ 裁剪图片</h3>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <span class="sub" style="margin:0">比例：</span>
+      <button class="btn-ghost" style="padding:5px 10px;font-size:12px" data-crop-ratio="0" onclick="setCropRatio(0,this)">自由</button>
+      <button class="btn-ghost" style="padding:5px 10px;font-size:12px" data-crop-ratio="1.7778" onclick="setCropRatio(16/9,this)">16:9 电脑</button>
+      <button class="btn-ghost" style="padding:5px 10px;font-size:12px" data-crop-ratio="0.5625" onclick="setCropRatio(9/16,this)">9:16 手机</button>
+      <button class="btn-ghost" style="padding:5px 10px;font-size:12px" data-crop-ratio="1" onclick="setCropRatio(1,this)">1:1 方形</button>
+    </div>
+    <div style="position:relative;overflow:auto;flex:1;background:#111;border-radius:8px;min-height:200px">
+      <canvas id="cropCanvas" style="display:block;max-width:100%;cursor:crosshair"></canvas>
+    </div>
+    <p class="sub" id="cropHint" style="margin:6px 0 0">在图上拖动鼠标框选区域，选完点「确认裁剪」</p>
+    <div style="display:flex;gap:10px;margin-top:12px">
+      <button class="btn-ghost" style="flex:1" onclick="closeCrop(false)">取消</button>
+      <button class="btn-primary" style="flex:2" onclick="closeCrop(true)">✓ 确认裁剪</button>
+    </div>
+  </div>
+</div>
+<script>
+/* ===== 图片裁剪器 ===== */
+let cropCtx = null, cropImg = null, cropSel = null, cropAspect = 0, cropDrag = null, cropCb = null;
+function openCrop(src, onDone){
+  cropCb = onDone; cropSel = null; cropAspect = 0;
+  document.querySelectorAll("[data-crop-ratio]").forEach(b=>b.classList.toggle("on", b.dataset.cropRatio==="0"));
+  const im = new Image();
+  im.onload = ()=>{
+    cropImg = im;
+    // 大图先缩到画布可显示尺寸（裁剪结果仍按原图分辨率输出）
+    const maxW = Math.min(520, window.innerWidth - 60), maxH = Math.min(520, window.innerHeight - 260);
+    const sc = Math.min(maxW/im.width, maxH/im.height, 1);
+    const cv = $("cropCanvas");
+    cv.width = Math.round(im.width*sc); cv.height = Math.round(im.height*sc);
+    cropCtx = cv.getContext("2d");
+    // 默认给一个居中 80% 的选区，用户可以直接调
+    cropSel = {x:cv.width*.1, y:cv.height*.1, w:cv.width*.8, h:cv.height*.8};
+    drawCrop();
+    $("cropModal").classList.add("show");
+  };
+  im.src = src;
+}
+function drawCrop(){
+  const cv = $("cropCanvas"), c = cropCtx;
+  c.clearRect(0,0,cv.width,cv.height);
+  c.drawImage(cropImg, 0, 0, cv.width, cv.height);
+  if(!cropSel) return;
+  const s = cropSel;
+  // 暗化选区外
+  c.fillStyle = "rgba(0,0,0,.55)";
+  c.beginPath(); c.rect(0,0,cv.width,cv.height);
+  c.rect(s.x, s.y, s.w, s.h); c.fill("evenodd");
+  // 选区框
+  c.strokeStyle = "#4f9cff"; c.lineWidth = 2;
+  c.strokeRect(s.x, s.y, s.w, s.h);
+}
+function cropPos(e){
+  const r = $("cropCanvas").getBoundingClientRect();
+  const p = e.touches ? e.touches[0] : e;
+  return {x:(p.clientX-r.left)*( $("cropCanvas").width/r.width),
+          y:(p.clientY-r.top)*( $("cropCanvas").height/r.height)};
+}
+function setCropRatio(v, btn){
+  cropAspect = v;
+  document.querySelectorAll("[data-crop-ratio]").forEach(b=>b.classList.toggle("on", b===btn));
+  const cv = $("cropCanvas");
+  if(cropSel && v > 0){
+    // 以当前选区中心重算锁定比例
+    const cx = cropSel.x + cropSel.w/2, cy = cropSel.y + cropSel.h/2;
+    let w = cropSel.w, h = w/v;
+    if(h > cv.height){ h = cv.height; w = h*v; }
+    if(w > cv.width){ w = cv.width; h = w/v; }
+    cropSel = {x:Math.max(0,cx-w/2), y:Math.max(0,cy-h/2), w, h};
+    drawCrop();
+  }
+}
+(function(){
+  const cv = $("cropCanvas");
+  const down = e=>{ if(!cropCtx) return; e.preventDefault();
+    const p = cropPos(e); cropDrag = {sx:p.x, sy:p.y, ox:cropSel?cropSel.x:0, oy:cropSel?cropSel.y:0};
+  };
+  const move = e=>{ if(!cropDrag) return; e.preventDefault();
+    const p = cropPos(e), cv2 = $("cropCanvas");
+    if(cropAspect > 0){
+      let w = Math.abs(p.x - cropDrag.sx), h = w/cropAspect;
+      if(h > cv2.height) { h = cv2.height; w = h*cropAspect; }
+      cropSel = {x:Math.max(0,Math.min(cropDrag.sx, p.x)), y:Math.max(0, cropDrag.sy - h/2), w, h};
+    }else{
+      cropSel = {x:Math.min(cropDrag.sx,p.x), y:Math.min(cropDrag.sy,p.y),
+                 w:Math.abs(p.x-cropDrag.sx), h:Math.abs(p.y-cropDrag.sy)};
+    }
+    drawCrop();
+  };
+  const up = ()=>{ cropDrag = null; };
+  cv.addEventListener("mousedown",down); cv.addEventListener("mousemove",move);
+  window.addEventListener("mouseup",up);
+  cv.addEventListener("touchstart",down,{passive:false});
+  cv.addEventListener("touchmove",move,{passive:false});
+  window.addEventListener("touchend",up);
+})();
+function closeCrop(ok){
+  $("cropModal").classList.remove("show");
+  if(ok && cropSel && cropSel.w > 10 && cropSel.h > 10 && cropCb){
+    // 按选区映射回原图分辨率裁剪输出
+    const sc = cropImg.width / $("cropCanvas").width;
+    const sx = cropSel.x*sc, sy = cropSel.y*sc, sw = cropSel.w*sc, sh = cropSel.h*sc;
+    const out = document.createElement("canvas");
+    out.width = Math.round(sw); out.height = Math.round(sh);
+    out.getContext("2d").drawImage(cropImg, sx, sy, sw, sh, 0, 0, out.width, out.height);
+    cropCb(out);
+  }
+  cropCb = null;
+}
+$("cropModal").addEventListener("click", e=>{ if(e.target===$("cropModal")) closeCrop(false); });
+/* 自定义背景：上传 → 裁剪 → 压缩保存 */
 $("bgFileInput").addEventListener("change", e=>{
   const f = e.target.files[0]; e.target.value=""; if(!f) return;
   const reader = new FileReader();
-  reader.onload = ()=>{
+  reader.onload = ()=> openCrop(reader.result, out=>{
     const im = new Image();
     im.onload = ()=>{
-      // 压缩到最大 1920px 宽，JPEG 质量 0.82，避免撑爆 localStorage
       const scale = Math.min(1, 1920/im.width);
       const cv = document.createElement("canvas");
       cv.width = Math.round(im.width*scale); cv.height = Math.round(im.height*scale);
@@ -2867,19 +3506,87 @@ $("bgFileInput").addEventListener("change", e=>{
       try{
         localStorage.setItem("aria.bgImage", data);
         applyCustomBg();
-        setStatus("自定义背景已应用（动态特效继续叠加）");
+        setStatus(`自定义背景已应用（裁剪 ${Math.round(out.width)}×${Math.round(out.height)}）`);
       }catch(err){ setStatus("图片过大，压缩后仍超出本地存储限制，请换小一点的图", true); }
     };
-    im.src = reader.result;
-  };
+    im.src = out.toDataURL("image/jpeg", 0.92);
+  });
   reader.readAsDataURL(f);
 });
-function resetBgImage(){
-  localStorage.removeItem("aria.bgImage");
-  applyCustomBg();
-  setStatus("已恢复默认主题背景");
+/* 我的壁纸上传：先本地裁剪，然后只存本机（localStorage），不入公共库 */
+$("wallUploadInput").addEventListener("change", e=>{
+  const f = e.target.files[0]; e.target.value=""; if(!f) return;
+  const reader = new FileReader();
+  reader.onload = ()=> openCrop(reader.result, out=>{
+    saveMyWall(out, f.name);
+  });
+  reader.readAsDataURL(f);
+});
+/* 我的壁纸：本机存储 + 管理。官方库不可删除，自己的随时可删 */
+const MY_WALL_KEY = "aria.myWalls";       // 数组：[{name, data}]
+const MY_WALL_MAX = 8;                    // 本机最多存 8 张（localStorage 容量限制）
+function getMyWalls(){
+  try{ return JSON.parse(localStorage.getItem(MY_WALL_KEY) || "[]"); }catch(e){ return []; }
 }
-$("#customBg") && null;
+function saveMyWall(canvas, name){
+  // 压到 1920 宽 jpeg，尽量省 localStorage（约 300~600KB/张）
+  const scale = Math.min(1, 1920/canvas.width);
+  const cv = document.createElement("canvas");
+  cv.width = Math.round(canvas.width*scale); cv.height = Math.round(canvas.height*scale);
+  cv.getContext("2d").drawImage(canvas, 0, 0, cv.width, cv.height);
+  const data = cv.toDataURL("image/jpeg", 0.82);
+  const walls = getMyWalls();
+  walls.unshift({name: (name || "我的壁纸").replace(/\.[^.]+$/, ""), data});
+  while(walls.length > MY_WALL_MAX) walls.pop();
+  try{
+    localStorage.setItem(MY_WALL_KEY, JSON.stringify(walls));
+    renderMyWalls();
+    applyMyWall(0);
+    setStatus(`已裁剪并保存到「我的壁纸」（仅本机）✅ 当前 ${walls.length}/${MY_WALL_MAX} 张`);
+  }catch(err){
+    walls.pop();   // 满了：去掉最旧一张再试
+    try{
+      localStorage.setItem(MY_WALL_KEY, JSON.stringify(walls.slice(0, -1)));
+      renderMyWalls();
+      setStatus("本机壁纸存储已满，自动删了最旧一张才存下。到「我的壁纸」里手动清理吧", true);
+    }catch(e2){ setStatus("本机存储满了，请在「我的壁纸」里删除几张再上传", true); }
+  }
+}
+function renderMyWalls(){
+  const wrap = $("myWallWrap"), grid = $("myWallGrid");
+  if(!wrap || !grid) return;
+  const walls = getMyWalls();
+  wrap.style.display = walls.length ? "" : "none";
+  grid.innerHTML = walls.map((w, i)=>
+    `<div class="wall-thumb" style="position:relative" title="${esc(w.name)}（点击应用）">
+       <img src="${w.data}" onclick="applyMyWall(${i})" alt="${esc(w.name)}">
+       <button onclick="event.stopPropagation();deleteMyWall(${i})"
+         style="position:absolute;top:2px;right:2px;width:20px;height:20px;border:none;border-radius:6px;
+                background:rgba(0,0,0,.55);color:#fff;font-size:12px;cursor:pointer;line-height:1" title="删除">✕</button>
+     </div>`).join("");
+}
+function applyMyWall(i){
+  const walls = getMyWalls();
+  if(!walls[i]) return;
+  try{
+    localStorage.setItem("aria.bgImage", walls[i].data);
+    applyCustomBg();
+    setStatus("已应用：「" + (walls[i].name || "我的壁纸") + "」✅");
+  }catch(e){ setStatus("应用失败："+e.message, true); }
+}
+function deleteMyWall(i){
+  const walls = getMyWalls();
+  const gone = walls.splice(i, 1)[0];
+  localStorage.setItem(MY_WALL_KEY, JSON.stringify(walls));
+  // 删的是当前正在用的那张 → 回默认背景
+  if($("customBg") && $("customBg").style.display !== "none"
+     && localStorage.getItem("aria.bgImage") === gone.data){
+    localStorage.removeItem("aria.bgImage");
+    applyCustomBg();
+  }
+  renderMyWalls();
+  setStatus("已删除：" + (gone.name || "一张壁纸"));
+}
 
 /* ================= 专属壁纸库 & 照片漂浮 ================= */
 let WALL_COUNT = 25;
@@ -2899,7 +3606,7 @@ function switchThemeTab(tab, btn){
   document.querySelectorAll(".tab-btn").forEach(b=>b.classList.toggle("on", b===btn));
   $("tab-theme").style.display = tab==="theme" ? "" : "none";
   $("tab-wall").style.display = tab==="wall" ? "" : "none";
-  if(tab==="wall"){ refreshWallCount().then(renderWallpapers); }
+  if(tab==="wall"){ refreshWallCount().then(renderWallpapers); renderMyWalls(); }
 }
 function renderWallpapers(){
   const ver = ($("wallVer")||{}).value || "";
@@ -2942,21 +3649,7 @@ function togglePhotoRain(){
   if(window.__applyBGEffect) window.__applyBGEffect(localStorage.getItem("aria.theme")||"", photoRainOn);
 }
 function pickWallUpload(){ $("wallUploadInput").click(); }
-$("wallUploadInput").addEventListener("change", async e=>{
-  const f = e.target.files[0]; e.target.value=""; if(!f) return;
-  setStatus(`正在处理 ${f.name}（裁剪+三版本入库）…`);
-  try{
-    const buf = await f.arrayBuffer();
-    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-    const r = await fetch("/api/wallpaper",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({name:f.name, data:b64})});
-    const d = await r.json();
-    if(d.error){ setStatus(d.error, true); return; }
-    await refreshWallCount();
-    renderWallpapers();
-    setStatus(`已入库：${d.name}（现在共 ${d.count} 张壁纸）✅`);
-  }catch(err){ setStatus("上传失败："+err.message, true); }
-});
+/* 旧版直传处理器已移除：wallUploadInput 现在统一走「本地裁剪 → doWallUpload」 */
 
 /* ================= 动态特效引擎挂载点（实际引擎定义在下方 IIFE） ================= */
 (function(){
@@ -3223,6 +3916,46 @@ function copyLan(){
   navigator.clipboard.writeText($("qrUrl").textContent).then(()=>setStatus("地址已复制"));
 }
 $("qrOverlay").addEventListener("click", e=>{ /* 只通过 ✕ 关闭 */ });
+</script>
+<script>
+/* ===== 手机键盘自适应：visualViewport 计算键盘高度，输入框始终可见 ===== */
+if(window.visualViewport){
+  const vv = window.visualViewport;
+  function updKB(){
+    const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    document.documentElement.style.setProperty("--kb", kb + "px");
+    if(kb > 80){ scrollBottom(); }
+  }
+  vv.addEventListener("resize", updKB);
+  vv.addEventListener("scroll", updKB);
+  updKB();
+}
+/* 输入框聚焦时确保自己滚进可视区（部分安卓 WebView 不自动滚） */
+$("input").addEventListener("focus", ()=>{
+  setTimeout(()=>{ $("input").scrollIntoView({block:"nearest"}); scrollBottom(); }, 300);
+});
+/* ===== 手机端侧边栏手势（参考 DeepSeek）：左缘右滑展开 / 往左滑或点空白折叠 ===== */
+$("sbScrim").addEventListener("click", ()=>{ document.querySelector(".sidebar").classList.remove("open"); });
+(function(){
+  let sx = 0, sy = 0, tracking = false, fromEdge = false;
+  document.addEventListener("touchstart", e=>{
+    const t = e.touches[0], sb = document.querySelector(".sidebar");
+    fromEdge = (t.clientX < 28 && !sb.classList.contains("open"));
+    sx = t.clientX; sy = t.clientY; tracking = true;
+  }, {passive:true});
+  document.addEventListener("touchend", e=>{
+    if(!tracking) return; tracking = false;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - sx, dy = Math.abs(t.clientY - sy);
+    const sb = document.querySelector(".sidebar");
+    if(dy > 70) return;   // 主要是竖向滚动，不当作手势
+    if(fromEdge && dx > 55){ sb.classList.add("open"); return; }
+    if(sb.classList.contains("open") && dx < -55){
+      const r = sb.getBoundingClientRect();
+      if(t.clientX > r.right){ sb.classList.remove("open"); }
+    }
+  }, {passive:true});
+})();
 </script>
 </body>
 </html>

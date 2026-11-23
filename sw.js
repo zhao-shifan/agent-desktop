@@ -5,7 +5,7 @@
    - /api/* 一律走网络，不缓存（对话、文件解析不能拿旧结果）
    - 壁纸大图 cache-first + 后台更新
 */
-const VERSION = "xfan-v1";
+const VERSION = "xfan-v3";   // v3: 壁纸上传改「先裁剪、只存本机可管理」；思考心跳；手机解析 Office/PDF
 const SHELL_CACHE = VERSION + "-shell";
 const IMG_CACHE = VERSION + "-img";
 const SHELL = [

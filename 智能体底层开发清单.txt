@@ -1,0 +1,186 @@
+================================================================
+        智能体（Agent）底层开发配置清单 —— 小凡笔记版
+        整理日期：2026-11-23
+        依据：本人项目实践 + smolagents / OpenAI Agents SDK /
+              OpenHands / Cline / Aider 等高星项目源码对照
+================================================================
+
+【一句话总结底层】
+智能体 = 大模型（规划器） + 程序代码（执行器/调度器） + 循环
+大模型只输出文本，不会自己干活；代码负责：给它看工具清单 →
+解析它想调哪个工具 → 执行工具 → 把结果回灌 → 循环直到完成。
+
+标准循环（伪代码，所有 agent 的核心就这 30 行）：
+    msgs = [system提示词, 历史对话, 用户问题]
+    for step in range(MAX_STEPS):          ← 步数预算，防死循环
+        resp = llm(msgs, tools=工具清单)   ← 模型决策
+        if 没有 tool_calls: 结束，返回 resp.content
+        msgs.append(resp)                  ← 意图必须原样回传
+        for call in resp.tool_calls:
+            result = 执行工具(call)        ← 真正干活的地方
+            msgs.append(tool_result(call.id, result))
+注意：用原生 function calling（API 的 tool_calls 字段），
+不要用 2023 年那套"让模型输出 JSON 文本再解析"，已经淘汰。
+
+================================================================
+一、必配模块清单（12 块，缺前 8 个不算完整智能体）
+================================================================
+
+ 1. LLM 适配层
+    - 统一接口封装：Ollama / DeepSeek / 智谱 / OpenRouter 兼容
+    - 换模型只改这一层，上层循环不动
+    - 重试：429/5xx 指数退避（3s→6s→12s，最多2次）
+
+ 2. 系统提示词（System Prompt）
+    - 角色定义 + 规则 + 工具纪律（能不调工具就不调）
+    - 工具使用纪律示例："涉及实时信息才调用；常识/写作直接答"
+
+ 3. 工具注册表（Tool Registry）
+    - {工具名: 函数 + JSON Schema 描述}
+    - 描述写"什么时候用"，比"怎么用"更重要（模型靠它选工具）
+
+ 4. 工具执行器
+    - 解析参数 → 权限检查 → 执行 → 返回字符串
+    - 单个工具失败返回错误文本（不中断循环，让模型自己纠正）
+    - 输出截断（如 12000 字符），别把超大文本灌回模型
+    - 多个 tool_calls 用线程池并发执行
+
+ 5. 步数预算（max_steps / MAX_ROUNDS）
+    - 必须有，防止无限循环烧 token
+    - 超限时不要硬编码一句"失败了"，而是追加一条消息
+      "不能再调工具，基于已有信息立即总结"再调一次模型
+
+ 6. 终止判断
+    - 模型返回不带 tool_calls 的纯文本 = 结束
+
+ 7. 上下文管理
+    - 超阈值（如窗口的 85%）时把较早历史摘要压缩成检查点
+    - 近期 25% 左右逐字保留（引用"上面/刚才"才准）
+    - 上下文溢出报错 → 压缩后重试一次
+
+ 8. 会话持久化
+    - 前端 localStorage 或服务端 SQLite
+    - 多轮历史、分支对话
+
+ 9. 前端进度展示
+    - 工具执行状态行（工具名+参数+完成✓）
+    - 思考心跳（模型 6 秒没响应就显示"思考中 Xs"）
+    - 步骤号/耗时/token 用量（进阶）
+
+10. 工具集（写改搜读，参考 SWE-agent 的 ACI 理论）
+    - T0 必备：read_file / write_file / edit_file / grep /
+      glob / list_dir / run_command / web_search / web_fetch
+    - T0.5 通用标配（2026-11-23 已加，均有出处）：
+      get_time       ← LangChain datetime 工具同用途
+      calculator     ← LangChain Calculator 同用途
+                      （AST 白名单求值，不用 exec）
+      run_python     ← smolagents PythonInterpreterTool
+      wikipedia_search ← smolagents WikipediaSearchTool
+                      （MediaWiki API 免 Key）
+      save_note / search_notes ← mem0 记忆层同用途
+                      （RAG-lite：JSON + 关键词打分）
+    - 关键：读写要对称！只有读没有写 = 残废 agent
+    - edit_file 设计要点：old_string 必须唯一命中，多处拒绝
+    - 权限分级：路径白名单 > 命令开关（run_command 和
+      run_python 都要受 allowCommand 控制）> 危险命令黑名单
+    - 不要用 RestrictedPython 当沙箱（不安全），自用
+      白名单+黑名单就够
+
+11. 复盘/追踪（trace）
+    - 每轮 msgs 落 JSONL 文件，出问题能定位到具体轮次
+    - 高星项目都叫 replay，自用 JSONL 够了
+
+12. 长期记忆（可选，进阶）
+    - SQLite + BM25 关键词检索即可，不必上向量库
+    - 真要做 RAG 再考虑 sqlite-vec（单文件、免费）
+
+================================================================
+二、LangChain 要不要？
+================================================================
+
+不要。理由：
+- 原生 function calling 已把"模型接工具"这件事标准化，
+  框架最大价值消失
+- 框架抽象遮住 prompt，调试 agent 90% 时间在看发了什么
+- 学习成本 > 它省下的胶水代码
+
+什么时候才考虑框架（全部免费开源）：
+- LangGraph(MIT)：要断点续跑/人工审批插中间/状态图
+- OpenAI Agents SDK(MIT)：要 handoff/护栏/内建 tracing
+- smolagents(Apache-2.0)：想试"模型写代码调工具"范式
+- CrewAI(MIT)：多角色流水线
+注意：n8n 不是免费软件（Sustainable Use License），商用避开。
+
+判断口诀：
+  能提前画出流程图的 = workflow，写普通代码，别用框架
+  模型在运行时自己决定下一步的 = agent，才需要循环/框架
+
+================================================================
+三、高星项目范式参考（2026-11 实测 star 数）
+================================================================
+
+单循环+工具集（最常见，本人项目属此类）：
+  opencode 228k / Cline 72k / Aider 50k / goose 57k
+事件流+沙箱：OpenHands 94k（Docker runtime、ACP 协议）
+代码即动作：smolagents 30k（CodeAct）、Open Interpreter 69k
+状态图：LangGraph 45k（checkpoint 断点续跑）
+角色多智能体：CrewAI 61k / MetaGPT 71k / AutoGen 62k
+记忆层：mem0 69k
+浏览器专用：browser-use 122k（网页降维成编号元素清单）
+
+值得抄的三个机制：
+1. Aider 的 repo map：tree-sitter 建符号图+排序压缩，大仓库
+   不用 RAG 也能塞进上下文
+2. browser-use 的编号元素：把网页变成选择题，模型只选编号
+3. Cline 的审批+checkpoint：diff 给人看一眼再落地，可回滚
+
+================================================================
+四、零成本方案（本人验证过）
+================================================================
+
+模型：
+  智谱 GLM-4-Flash / GLM-5.3-Flash —— API 免费不限量（主力）
+  GLM-4V-Flash —— 免费视觉模型
+  OpenRouter :free 模型池 —— 每天 50 次兜底
+  Ollama 本地 —— 断网/隐私场景备选（小模型工具调用弱，
+                 别当主力）
+搜索：Bing/360/DuckDuckGo/百度 四源并发抓取解析（免 Key）
+网页正文：trafilatura（本地）+ r.jina.ai 转发兜底
+天气/定位：Open-Meteo / ip-api / ipwho.is（全免 Key）
+记忆：SQLite 标准库 + BM25，不需要向量库和 embedding
+后端：Python 标准库 http.server，别换 FastAPI（保零依赖）
+界面：自研单 HTML（手机/桌面同一套代码，PWA+APK）
+
+================================================================
+五、避坑清单（本人踩过/教程里的坑）
+================================================================
+
+1. 别用"模型输出JSON文本再解析"的旧 ReAct 写法，
+   直接用 API 原生 tool_calls
+2. 别信 RestrictedPython 沙箱，防君子不防小人
+3. 别一上来装 ChromaDB 向量库，SQLite+BM25 够用
+4. 别用 Streamlit/Gradio 替代自研前端（倒退）
+5. Ollama 小模型（4B级）工具调用经常出错，云端免费API为主
+6. base64 编码大文件要分块，String.fromCharCode(...大数组)
+   会爆栈
+7. Service Worker 缓存会让人改了代码"没生效"——每次改版
+   必须升缓存版本号
+8. 免费API有速率限制：必须做指数退避重试
+9. 工具输出必须截断再回灌，否则上下文爆炸
+10. 打包 exe 注意：PyInstaller 单文件要放纯英文路径
+
+================================================================
+六、本人项目对应文件（D:\桌面版agent）
+================================================================
+
+  server.py       —— HTTP服务 + 工具循环（并发/重试/超轮收尾）
+  tools_layer.py  —— 工具层（搜索/抓网页/读写文件/grep/命令）
+  index.html      —— 全平台前端（压缩策略/技能路由/裁剪上传）
+  sw.js           —— Service Worker（改版必升 VERSION）
+  _test_tool_loop.py —— 端到端循环测试（假上游+真 /api/chat）
+  _dsh_ref/       —— smolagents/OpenAI SDK 源码对照参考
+
+版本记录：
+  v1.5  2026-11-23  加写改搜工具/并发/退避/思考心跳/手机解析
+                    Office与PDF/壁纸裁剪本地管理/键盘自适应
+================================================================

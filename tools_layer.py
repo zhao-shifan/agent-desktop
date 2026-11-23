@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """小凡智能体 · 工具层（function calling）
 
 模型只决定「要不要用工具、用哪个、传什么参数」；真正干活的是这里：
@@ -8,20 +8,27 @@ import html
 import json
 import os
 import re
+import ast
 import subprocess
+import sys
 import urllib.parse
 import urllib.request
+import fnmatch
 import concurrent.futures
 
 MAX_CHARS = 12000
 MAX_ROUNDS = 4          # 一次提问里最多来回几轮工具调用
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 
-# 部分精简版 Python 没带根证书，优先用 certifi，实在没有就退化为不校验证书
+# 部分精简版 Python 没带根证书，优先用 certifi；没有 certifi 时退回系统默认，
+# 仍失败再降级为不校验（保持"先验证、后降级"的顺序）
 try:
     import ssl
-    import certifi
-    _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+    try:
+        import certifi
+        _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        _SSL_CTX = ssl.create_default_context()
     _SSL_FALLBACK = ssl._create_unverified_context()
 except Exception:
     ssl = None
@@ -295,6 +302,161 @@ def get_weather(city="", days=3):
     return "\n".join(lines)
 
 
+def get_time():
+    """当前本地时间（LangChain datetime 工具同款用途，标准库实现）。"""
+    import datetime as _dt
+    now = _dt.datetime.now()
+    week = "一二三四五六日"[now.weekday()]
+    return ("现在时间：%s（周%s）\nISO：%s\nUnix 时间戳：%d"
+            % (now.strftime("%Y-%m-%d %H:%M:%S"), week,
+               now.isoformat(timespec="seconds"), int(now.timestamp())))
+
+
+_CALC_ALLOWED_NODES = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Constant,
+                        ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod,
+                        ast.Pow, ast.USub, ast.UAdd)
+
+
+def calculator(expression):
+    """安全计算器：AST 白名单求值，不 exec（LangChain Calculator 同用途，无依赖实现）。"""
+    expr = str(expression or "").strip().replace("×", "*").replace("÷", "/").replace("^", "**")
+    if not expr:
+        return "表达式为空"
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError as e:
+        return "表达式不合法：%s（只支持 + - * / % ** ( ) 和数字）" % e
+    for node in ast.walk(tree):
+        if not isinstance(node, _CALC_ALLOWED_NODES):
+            return "不支持的内容：%s（计算器只做纯数值运算，代码请用 run_python）" % type(node).__name__
+        if isinstance(node, ast.Constant) and not isinstance(node.value, (int, float)):
+            return "只允许数字常量，不允许字符串"
+    try:
+        # 已经过 AST 白名单校验，节点只有数字和四则/幂运算
+        value = eval(compile(tree, "<calc>", "eval"))  # noqa: S307
+        out = ("%s = %s" % (expr, repr(value)))
+        if isinstance(value, float) and value == int(value) and abs(value) < 1e15:
+            out += "（整数结果：%d）" % int(value)
+        return out
+    except ZeroDivisionError:
+        return "除零错误"
+    except OverflowError:
+        return "数值溢出"
+    except Exception as e:
+        return "计算失败：%s" % e
+
+
+def run_python(code, work_dir=""):
+    """执行一段 Python 代码并返回输出（smolagents PythonInterpreterTool 同用途）。"""
+    if not str(code or "").strip():
+        return "代码为空"
+    import tempfile
+    try:
+        f = tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8")
+        f.write(code)
+        f.close()
+        p = subprocess.run([sys.executable, f.name], capture_output=True, timeout=60)
+        out = (p.stdout or b"").decode("utf-8", errors="replace")
+        err = (p.stderr or b"").decode("utf-8", errors="replace")
+        text = (out + (("\n[stderr]\n" + err) if err.strip() else "")).strip() or "（没有输出，可用 print 输出结果）"
+        if len(text) > MAX_CHARS:
+            text = text[:MAX_CHARS] + "\n…（已截断）"
+        return "exit=%d\n%s" % (p.returncode, text)
+    except subprocess.TimeoutExpired:
+        return "代码超时（60 秒上限）"
+    except Exception as e:
+        return "执行失败：%s" % e
+    finally:
+        try:
+            os.unlink(f.name)
+        except Exception:
+            pass
+
+
+def wikipedia_search(query, lang="zh"):
+    """维基百科搜索（smolagents WikipediaSearchTool 同用途；MediaWiki API 免 Key）。"""
+    q = str(query or "").strip()
+    if not q:
+        return "搜索词为空"
+    lang = lang if lang in ("zh", "en", "ja") else "zh"
+    try:
+        # 1) OpenSearch 找条目名
+        data = json.loads(_http(
+            "https://%s.wikipedia.org/w/api.php?action=opensearch&limit=5&format=json&search=%s"
+            % (lang, urllib.parse.quote(q)),
+            headers={"Accept": "application/json"}))
+        titles = data[1] if isinstance(data, list) and len(data) > 1 else []
+        if not titles:
+            return "维基百科没找到「%s」相关条目" % q
+        # 2) 逐条取摘要（REST summary 接口）
+        out = []
+        for i, title in enumerate(titles[:3], 1):
+            try:
+                s = json.loads(_http(
+                    "https://%s.wikipedia.org/api/rest_v1/page/summary/%s"
+                    % (lang, urllib.parse.quote(title.replace(" ", "_"))),
+                    headers={"Accept": "application/json"}))
+                extract = str(s.get("extract", ""))[:500]
+                url = s.get("content_urls", {}).get("desktop", {}).get("page", "")
+                out.append("%d. %s\n   %s\n   链接：%s" % (i, s.get("title", title), extract, url))
+            except Exception:
+                out.append("%d. %s（摘要获取失败）" % (i, title))
+        return "\n\n".join(out)
+    except Exception as e:
+        return "维基百科查询失败：%s（可能是网络不通，被墙时用 web_search 代替）" % e
+
+
+# 本地笔记（RAG-lite，mem0/LangChain Memory 同用途）：JSON 存储 + 关键词打分检索
+_NOTES_PATH = os.path.join(APP_ROOT, "agent_data", "notes.json")
+
+
+def _load_notes():
+    try:
+        with open(_NOTES_PATH, "rb") as f:
+            return json.loads(f.read().decode("utf-8"))
+    except Exception:
+        return []
+
+
+def save_note(title, content):
+    """保存一条长期记忆笔记，供后续对话用 search_notes 检索。"""
+    title, content = str(title or "").strip() or "未命名", str(content or "").strip()
+    if not content:
+        return "内容为空，没保存"
+    import datetime as _dt
+    notes = _load_notes()
+    notes.insert(0, {"title": title, "content": content,
+                     "time": _dt.datetime.now().strftime("%Y-%m-%d %H:%M")})
+    os.makedirs(os.path.dirname(_NOTES_PATH), exist_ok=True)
+    with open(_NOTES_PATH, "w", encoding="utf-8") as f:
+        json.dump(notes[:500], f, ensure_ascii=False, indent=1)   # 上限 500 条
+    return "已保存笔记「%s」（现共 %d 条）。之后用 search_notes 可以检索" % (title, min(len(notes), 500))
+
+
+def search_notes(query):
+    """按关键词检索自己的笔记（简单词重叠打分，无需向量库）。"""
+    q = str(query or "").strip()
+    if not q:
+        return "检索词为空"
+    notes = _load_notes()
+    if not notes:
+        return "还没有任何笔记，可先用 save_note 保存"
+    terms = [t for t in re.split(r"[\s,，。;；|]+", q) if t]
+    scored = []
+    for n in notes:
+        blob = (n.get("title", "") + " " + n.get("content", ""))
+        score = sum(2 for t in terms if t in blob) + sum(1 for t in terms if t in n.get("title", ""))
+        if score > 0:
+            scored.append((score, n))
+    if not scored:
+        return "笔记里没搜到「%s」相关内容（共 %d 条笔记）" % (q, len(notes))
+    scored.sort(key=lambda x: -x[0])
+    out = ["搜到 %d 条相关笔记：" % len(scored)]
+    for score, n in scored[:5]:
+        out.append("「%s」（%s）：%s" % (n.get("title"), n.get("time"), str(n.get("content"))[:300]))
+    return "\n".join(out)
+
+
 def fetch_url(url):
     if not re.match(r"^https?://", url or ""):
         return "只支持 http/https 链接"
@@ -377,6 +539,115 @@ def list_dir(path=".", work_dir=""):
     return full + "\n" + "\n".join(items)
 
 
+def write_file(path, content, work_dir=""):
+    """新建或整体覆盖一个文本文件（参考 smolagents save_file：先校验边界再写）。"""
+    full = _check_path(path, work_dir)
+    content = str(content or "")
+    existed = os.path.isfile(full)
+    if existed and os.path.getsize(full) > 0:
+        with open(full, "rb") as f:
+            old = f.read(2 * 1024 * 1024).decode("utf-8", errors="replace")
+    else:
+        old = ""
+    os.makedirs(os.path.dirname(full) or ".", exist_ok=True)
+    with open(full, "w", encoding="utf-8", newline="\n") as f:
+        f.write(content)
+    if existed:
+        return "已覆盖 %s（原 %d 字符 → 新 %d 字符）" % (full, len(old), len(content))
+    return "已创建 %s（%d 字符）" % (full, len(content))
+
+
+def edit_file(path, old_string, new_string, work_dir="", replace_all=False):
+    """局部替换（参考 dsh/claude code 的 edit：old 必须唯一命中，防写坏文件）。"""
+    full = _check_path(path, work_dir)
+    if not os.path.isfile(full):
+        return "文件不存在：%s（先用 write_file 创建，或用 read_file 确认路径）" % full
+    if os.path.getsize(full) > 8 * 1024 * 1024:
+        return "文件太大（>8MB），请用 run_command 处理"
+    with open(full, "rb") as f:
+        data = f.read()
+    text = None
+    for enc in ("utf-8", "gbk"):
+        try:
+            text = data.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        return "看起来是二进制文件，编辑不了"
+    old_string, new_string = str(old_string or ""), str(new_string or "")
+    if not old_string:
+        return "old_string 不能为空（覆盖整个文件请用 write_file）"
+    n = text.count(old_string)
+    if n == 0:
+        return "old_string 在文件中没找到，先 read_file 核对原文（注意空格/换行）"
+    if n > 1 and not replace_all:
+        return "old_string 出现了 %d 次，为避免误改请扩大上下文使其唯一，或确认后用 replace_all=true" % n
+    new_text = text.replace(old_string, new_string, n if (replace_all and n > 1) else 1)
+    with open(full, "w", encoding=enc, newline="") as f:
+        f.write(new_text)
+    return "已编辑 %s：%d 处替换（%d → %d 字符）" % (full, n if (replace_all and n > 1) else 1, len(text), len(new_text))
+
+
+def grep(pattern, path=".", work_dir="", max_results=30):
+    """按正则搜文件内容（参考 ripgrep 语义，纯标准库实现）。"""
+    import fnmatch as _fnm
+    full = _check_path(path, work_dir)
+    try:
+        rx = re.compile(pattern)
+    except re.error as e:
+        return "正则不合法：%s" % e
+    max_results = max(1, min(int(max_results or 30), 100))
+    hits, scanned = [], 0
+    for dirpath, dirnames, filenames in os.walk(full):
+        dirnames[:] = [d for d in dirnames if d not in (
+            ".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", ".idea", ".vscode")]
+        for fn in filenames:
+            p = os.path.join(dirpath, fn)
+            try:
+                if os.path.getsize(p) > 2 * 1024 * 1024:
+                    continue
+            except OSError:
+                continue
+            scanned += 1
+            try:
+                with open(p, "rb") as f:
+                    text = f.read().decode("utf-8", errors="ignore")
+            except OSError:
+                continue
+            if "\x00" in text[:2000]:
+                continue
+            for i, line in enumerate(text.splitlines(), 1):
+                if rx.search(line):
+                    hits.append("%s:%d: %s" % (os.path.relpath(p, full), i, line.strip()[:200]))
+                    if len(hits) >= max_results:
+                        return "找到 %d+ 处（已截断，扫了 %d 个文件）：\n%s" % (max_results, scanned, "\n".join(hits))
+    if not hits:
+        return "没搜到匹配（扫了 %d 个文件）。试试放宽正则，或先用 list_dir 确认目录" % scanned
+    return "找到 %d 处（扫了 %d 个文件）：\n%s" % (len(hits), scanned, "\n".join(hits))
+
+
+def glob_files(pattern, path=".", work_dir=""):
+    """按通配符找文件，如 **/*.py。限制在允许目录内。"""
+    full = _check_path(path, work_dir)
+    matches = []
+    for dirpath, dirnames, filenames in os.walk(full):
+        dirnames[:] = [d for d in dirnames if d not in (
+            ".git", "node_modules", "__pycache__", ".venv", "venv")]
+        for fn in filenames:
+            rel = os.path.relpath(os.path.join(dirpath, fn), full).replace("\\", "/")
+            if fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(fn, pattern):
+                matches.append(rel)
+                if len(matches) >= 200:
+                    break
+        if len(matches) >= 200:
+            break
+    if not matches:
+        return "没找到匹配 %s 的文件（在 %s 下）。注意 pattern 用相对路径，如 **/*.py" % (pattern, full)
+    return "%s 下匹配 %s 的文件（%d 个，已截断则取前 200）：\n%s" % (
+        full, pattern, len(matches), "\n".join(matches[:200]))
+
+
 def run_command(command, work_dir=""):
     cwd = None
     if work_dir:
@@ -426,10 +697,77 @@ TOOL_DEFS = [
         "parameters": {"type": "object", "properties": {
             "path": {"type": "string"}}}}},
     {"type": "function", "function": {
+        "name": "write_file",
+        "description": "新建或整体覆盖一个文本文件。修改已有文件请优先用 edit_file（更省更安全）。",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string", "description": "绝对路径"},
+            "content": {"type": "string", "description": "完整文件内容"}},
+            "required": ["path", "content"]}}},
+    {"type": "function", "function": {
+        "name": "edit_file",
+        "description": "对已有文件做精确局部替换：old_string 必须与原文唯一匹配。改代码/文档首选这个。",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"},
+            "old_string": {"type": "string", "description": "要替换的原文（带足够上下文保证唯一）"},
+            "new_string": {"type": "string", "description": "替换后的新文本"},
+            "replace_all": {"type": "boolean", "description": "替换全部匹配，默认只替换唯一一处"}},
+            "required": ["path", "old_string", "new_string"]}}},
+    {"type": "function", "function": {
+        "name": "grep",
+        "description": "在工作目录内按正则搜索文件内容，返回 文件:行号:内容。找代码/找配置先用它。",
+        "parameters": {"type": "object", "properties": {
+            "pattern": {"type": "string", "description": "正则表达式"},
+            "path": {"type": "string", "description": "起始目录，默认工作目录"},
+            "max_results": {"type": "integer", "description": "最多返回条数，默认 30"}},
+            "required": ["pattern"]}}},
+    {"type": "function", "function": {
+        "name": "glob_files",
+        "description": "按通配符找文件路径，如 **/*.py、report*.docx。不知道确切文件名时先 glob 再 read。",
+        "parameters": {"type": "object", "properties": {
+            "pattern": {"type": "string", "description": "通配符，如 **/*.py"},
+            "path": {"type": "string", "description": "起始目录，默认工作目录"}},
+            "required": ["pattern"]}}},
+    {"type": "function", "function": {
         "name": "run_command",
         "description": "在本机执行一条命令并返回输出（仅当用户开启了命令权限时可用）。",
         "parameters": {"type": "object", "properties": {
             "command": {"type": "string"}}, "required": ["command"]}}},
+    {"type": "function", "function": {
+        "name": "get_time",
+        "description": "获取当前本地时间、星期、时间戳。用户问'现在几点/今天星期几'或需要时间基准时使用（无需联网）。",
+        "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
+        "name": "calculator",
+        "description": "精确计算数学表达式（+ - * / % ** 和括号）。任何数值计算都必须用它，不要心算，避免算错。",
+        "parameters": {"type": "object", "properties": {
+            "expression": {"type": "string", "description": "数学表达式，如 (1250*0.85+360)/3"}},
+            "required": ["expression"]}}},
+    {"type": "function", "function": {
+        "name": "run_python",
+        "description": "执行一段 Python 代码并返回 print 输出（60 秒上限）。适合复杂数据处理、批量计算、文件解析等计算器搞不定的事。仅当用户开启命令权限时可用。",
+        "parameters": {"type": "object", "properties": {
+            "code": {"type": "string", "description": "完整 Python 代码，结果用 print() 输出"}},
+            "required": ["code"]}}},
+    {"type": "function", "function": {
+        "name": "wikipedia_search",
+        "description": "查询维基百科百科知识（人物/概念/历史/术语等），返回摘要和链接。通用知识类问题优先用它，实时信息用 web_search。",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "条目关键词"},
+            "lang": {"type": "string", "description": "语言版本 zh/en/ja，默认 zh"}},
+            "required": ["query"]}}},
+    {"type": "function", "function": {
+        "name": "save_note",
+        "description": "把重要信息（用户偏好、结论、待办、事实）存成长期记忆笔记，跨对话可用。用户说'记住这个/记一下'时必须用它。",
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string", "description": "简短标题"},
+            "content": {"type": "string", "description": "要记住的内容"}},
+            "required": ["title", "content"]}}},
+    {"type": "function", "function": {
+        "name": "search_notes",
+        "description": "检索之前保存的长期记忆笔记。用户问'我之前让你记的…/我的偏好是什么'或需要历史信息时先用它。",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "检索关键词"}},
+            "required": ["query"]}}},
     {"type": "function", "function": {
         "name": "get_location",
         "description": "按出口 IP 粗略判断用户所在城市（免 Key、无需授权，精度到城市）。用户问天气/本地信息但没说城市时可先调它。",
@@ -465,10 +803,35 @@ def run_tool(call, perm=None):
                              args.get("start", 0), args.get("lines", 400))
         if name == "list_dir":
             return list_dir(args.get("path", "."), work_dir)
+        if name == "write_file":
+            return write_file(args.get("path", ""), args.get("content", ""), work_dir)
+        if name == "edit_file":
+            return edit_file(args.get("path", ""), args.get("old_string", ""),
+                             args.get("new_string", ""), work_dir,
+                             bool(args.get("replace_all")))
+        if name == "grep":
+            return grep(args.get("pattern", ""), args.get("path", "."), work_dir,
+                        args.get("max_results", 30))
+        if name == "glob_files":
+            return glob_files(args.get("pattern", ""), args.get("path", "."), work_dir)
         if name == "run_command":
             if not perm.get("allowCommand"):
                 return "被拒绝：用户没有开启命令执行权限，请让用户到设置里打开「允许执行命令」。"
             return run_command(args.get("command", ""), work_dir)
+        if name == "get_time":
+            return get_time()
+        if name == "calculator":
+            return calculator(args.get("expression", ""))
+        if name == "run_python":
+            if not perm.get("allowCommand"):
+                return "被拒绝：用户没有开启命令执行权限，请让用户到设置里打开「允许执行命令」。"
+            return run_python(args.get("code", ""), work_dir)
+        if name == "wikipedia_search":
+            return wikipedia_search(args.get("query", ""), args.get("lang", "zh"))
+        if name == "save_note":
+            return save_note(args.get("title", ""), args.get("content", ""))
+        if name == "search_notes":
+            return search_notes(args.get("query", ""))
         if name == "get_location":
             return get_location()
         if name == "get_weather":
