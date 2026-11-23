@@ -1443,6 +1443,20 @@ let STANDALONE = location.protocol === "file:";
   }
 })();
 
+/* 兜底：在电脑上双击 html（file://）时，若本机 8765 服务在跑，自动跳过去。
+   否则会一直停在「独立模式」，浏览器直连模型被跨域拦掉（智谱等）。 */
+(async function escapeFileMode(){
+  if(location.protocol !== "file:") return;
+  if(/Android|iPhone|iPad|iPod|Mobile|HarmonyOS/i.test(navigator.userAgent)) return;  // 手机端本就没有电脑服务
+  try{
+    const ctl = new AbortController();
+    const timer = setTimeout(()=>ctl.abort(), 1200);
+    await fetch("http://127.0.0.1:8765/api/health", {mode:"no-cors", cache:"no-store", signal: ctl.signal});
+    clearTimeout(timer);
+    location.replace("http://127.0.0.1:8765/");
+  }catch(e){ /* 本机没跑服务：保持独立模式，照常能用支持跨域的模型 */ }
+})();
+
 /* ================= 工具 ================= */
 const $ = id => document.getElementById(id);
 function save(){
@@ -3092,7 +3106,9 @@ async function sendStream(){
         openSettings();
         $("formTip").textContent = "⚠ 当前 Key 被平台拒绝（401），请重新粘贴有效的 Key";
       } else if(STANDALONE && (e.name==="TypeError" || hint==="Failed to fetch")){
-        hint = "独立模式直连被浏览器跨域拦截。解决：① 通过电脑服务打开 http://127.0.0.1:8765；② 或换支持跨域的平台（DeepSeek/OpenRouter）";
+        hint = location.protocol === "file:"
+          ? "看到这句，说明你是「双击 html 文件」打开的（file:// 独立模式），页面拿不到电脑上的接口代理。电脑端请改用 exe，或直接打开 http://127.0.0.1:8765 ；手机上想用 GLM 请连同一 WiFi 扫「① 同一 WiFi」的码。"
+          : "手机在线版是浏览器直连模型接口，这个平台不返回跨域头（智谱/GLM 就是）。解决：① 连同一 WiFi，扫桌面端「① 同一 WiFi」的码（走电脑代理，GLM 可用）；② 或换支持跨域的平台（DeepSeek / OpenRouter）。";
       }
       setStatus(hint, true);
       el.innerHTML = `<p style="color:#e5735f">⚠ ${esc(hint)}</p>`;
