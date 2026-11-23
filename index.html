@@ -4186,6 +4186,13 @@ function copyLan(){
   navigator.clipboard.writeText(PAGES_MOBILE_URL).then(()=>setStatus("地址已复制"));
 }
 $("qrOverlay").addEventListener("click", e=>{ /* 只通过 ✕ 关闭 */ });
+/* 手机端（在线手机版 / APK / 手机浏览器打开局域网地址）不需要「手机扫码使用」入口，直接隐藏 */
+(function(){
+  const isPhone = /Android|iPhone|iPad|iPod|Mobile|HarmonyOS/i.test(navigator.userAgent)
+                  || Math.min(screen.width, screen.height) < 520;
+  if(!isPhone) return;
+  const qb = $("qrBtn"); if(qb) qb.style.display = "none";
+})();
 </script>
 <script>
 /* ===== 手机键盘自适应：visualViewport 计算键盘高度，输入框始终可见 ===== */

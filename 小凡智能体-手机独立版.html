@@ -645,14 +645,12 @@ body::before{
 .menu-toggle{display:none}
 /* 手机端侧边栏遮罩：展开时盖住内容区，点空白即折叠（参考 DeepSeek） */
 #sbScrim{position:fixed;inset:0;z-index:49;background:rgba(0,0,0,.42);display:none}
-body.sb-open #sbScrim{display:block}
-/* 侧栏展开时隐藏悬浮汉堡按钮，收起后恢复（JS 切 body.sb-open，不用 :has，兼容微信/X5 内核） */
-body.sb-open .menu-toggle{display:none}
+body:has(.sidebar.open) #sbScrim{display:block}
 @media(max-width:760px){
   .sidebar{position:fixed;left:0;top:0;bottom:0;z-index:50;transform:translateX(-100%);transition:.25s}
   .sidebar.open{transform:none;box-shadow:0 0 60px rgba(0,0,0,.6)}
-  /* 汉堡按钮贴近页面顶部（参考 DeepSeek），只避开手机状态栏/挖孔 */
-  .menu-toggle{display:flex;position:fixed;top:calc(env(safe-area-inset-top, 0px) + 12px);left:14px;z-index:60;width:38px;height:38px;border-radius:11px;
+  /* 汉堡按钮避开手机状态栏/挖孔（参考 DeepSeek：按钮在内容区顶部，不顶到屏幕边缘） */
+  .menu-toggle{display:flex;position:fixed;top:calc(env(safe-area-inset-top, 0px) + 44px);left:14px;z-index:60;width:38px;height:38px;border-radius:11px;
     border:1px solid var(--line2);background:rgba(20,20,24,.8);backdrop-filter:blur(10px);color:var(--dim);
     align-items:center;justify-content:center;cursor:pointer}
   .chat{padding-top:calc(env(safe-area-inset-top, 0px) + 92px)}
@@ -697,18 +695,10 @@ body.sb-open .menu-toggle{display:none}
   .avatar{width:30px;height:30px;font-size:13px}
   .bubble{font-size:14px}
 
-  /* 触控优化（参考 dsh-mobile-ui 规范）：44px 触控目标 / 16px 输入防 iOS 聚焦缩放 / 去点按高亮与双击缩放 */
-  body{-webkit-tap-highlight-color:transparent}
-  button,select,.mode-chip,.wall-thumb,.sess-item{touch-action:manipulation;user-select:none}
-  button,select,.mode-chip{min-height:36px}
-  .composer textarea{font-size:16px}
-  .round-btn{width:38px;height:38px}
-  .btn-send{width:40px;height:40px}
-
   /* 输入区：说明文字在窄屏会挤成一列，直接不显示；按钮允许换行 */
   .composer-wrap{padding:0 10px 12px;padding-bottom:calc(12px + var(--kb, 0px))}
   .composer{border-radius:16px}
-  .composer textarea{padding:12px 12px 6px;font-size:16px}
+  .composer textarea{padding:12px 12px 6px;font-size:14px}
   .composer-bar{flex-wrap:wrap;row-gap:8px;padding:6px 8px 8px;gap:8px}
   .composer-note{display:none}
   .bar-right{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto;justify-content:flex-end;flex:1 1 auto}
@@ -717,11 +707,13 @@ body.sb-open .menu-toggle{display:none}
   .round-btn{width:32px;height:32px}
   .btn-send{width:34px;height:34px;flex:0 0 auto}
 
-  /* 弹窗：手机端与桌面一致，保持屏幕居中（不用贴底抽屉式）；宽度留边不糊满屏 */
-  .overlay{padding:14px}
-  .modal{width:min(430px,100%)!important;max-height:84vh;height:auto;
-         border-radius:18px;padding:0 16px 16px}
+  /* 弹窗：DeepSeek 手机端式底部抽屉——贴底滑出，高度留白，不整屏糊脸 */
+  .overlay{padding:0}
+  .overlay.show{align-items:flex-end}
+  .modal{width:100%!important;max-width:100%!important;max-height:82vh;height:auto;
+         border-radius:18px 18px 0 0;padding:0 16px 16px;animation:sheetUp .25s ease}
   .modal-fixed{margin:0 -16px;padding:16px 16px 0}
+  @keyframes sheetUp{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
   .modal h3{font-size:17px}
   .modal .sub{font-size:12px;margin-bottom:16px}
   .modal img,.modal table,.modal pre{max-width:100%}
@@ -736,7 +728,7 @@ body.sb-open .menu-toggle{display:none}
 </style>
 </head>
 <body>
-<button class="menu-toggle" onclick="setSidebar(!document.querySelector('.sidebar').classList.contains('open'))">☰</button>
+<button class="menu-toggle" onclick="document.querySelector('.sidebar').classList.toggle('open')">☰</button>
 <button class="expand-btn" id="expandBtn" onclick="toggleSidebar()" title="展开侧边栏">»</button>
 <div id="customBg" style="display:none;position:fixed;inset:0;z-index:0;background-size:cover;background-position:center;pointer-events:none;overflow:hidden">
   <div class="cb-blur" style="position:absolute;inset:-50px;background-size:cover;background-position:center;filter:blur(30px) brightness(.55);display:none"></div>
@@ -906,11 +898,11 @@ body.sb-open .menu-toggle{display:none}
       <h3>手机扫码使用</h3>
       <button class="x-close" onclick="$('qrOverlay').classList.remove('show')">✕</button>
     </div>
-    <p class="sub">确保手机与电脑连接同一个 WiFi，用手机相机或微信扫一扫即可打开。<br>打开后建议在浏览器菜单里「添加到主屏幕」，即可像 App 一样全屏使用。</p>
-    <div id="qrBox" style="display:flex;justify-content:center;padding:10px 0 6px"></div>
-    <p style="font-size:12px;color:var(--dim);margin:10px 0 4px;word-break:break-all" id="qrUrl"></p>
+    <p class="sub">两个码按情况选：<b>①同一 WiFi</b> 最稳，手机走电脑代理，智谱这类不开放跨域的模型也能用（电脑要开着）；<b>②任意网络</b> 不用电脑，但只能直连开放跨域的模型（DeepSeek / OpenRouter）。</p>
+    <div id="qrBox" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0 4px"></div>
+    <p style="font-size:12px;color:var(--dim);margin:6px 0 4px;word-break:break-all" id="qrUrl"></p>
     <div class="modal-actions">
-      <button class="btn-ghost" onclick="copyLan()">复制地址</button>
+      <button class="btn-ghost" onclick="copyLan()">复制在线地址</button>
       <button class="btn-primary" onclick="$('qrOverlay').classList.remove('show')">完成</button>
     </div>
   </div>
@@ -1998,7 +1990,7 @@ function newChat(){
   curId = null; history=[]; attachments=[]; msgCount=0;   // 新对话：清空上下文，不继承任何旧对话
   renderAttachments(); renderSessions(); updateScrollNav(); renderMsgNav();
   $("chatInner").innerHTML = WELCOME;
-  setSidebar(false);
+  document.querySelector(".sidebar").classList.remove("open");
 }
 const WELCOME = document.getElementById("welcome").outerHTML;
 
@@ -2078,7 +2070,7 @@ function openChat(id){
   chatBox.scrollTop = chatBox.scrollHeight;
   chatBox.style.scrollBehavior = "";
   updateScrollNav(); renderMsgNav();
-  setSidebar(false);
+  document.querySelector(".sidebar").classList.remove("open");
 }
 function delChat(id){
   chats = chats.filter(c=>c.id!==id);
@@ -2134,14 +2126,14 @@ function copyMsg(idx){
 }
 /* 纯前端兜底：生成 Word 兼容的 .doc（HTML+Office 命名空间，Word/WPS 可直接打开编辑），不依赖服务端 */
 function downloadBlob(blob, name){
-  // 手机浏览器兼容：立即 revoke 会中断下载（移动端 Chrome 已知问题），延后再回收
+  // 浏览器兼容：立即 revoke 会中断下载（移动端 Chrome 已知问题），延后再回收
   const a = document.createElement("a");
   const url = URL.createObjectURL(blob);
   a.href = url; a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url), 4000);
 }
-/* 手机端更友好的下载：支持系统分享面板时优先分享（微信内置浏览器 blob 下载经常被拦） */
+/* 更友好的下载：支持系统分享面板时优先分享 */
 async function downloadOrShare(blob, name){
   const f = new File([blob], name, {type: blob.type});
   try{
@@ -3267,11 +3259,6 @@ function toggleSidebar(){
   sb.classList.toggle("collapsed");
   $("expandBtn").classList.toggle("show", sb.classList.contains("collapsed"));
 }
-/* 侧栏展开/收起统一入口：同时切 body.sb-open（汉堡按钮隐藏、遮罩显示都挂在这个 class 上） */
-function setSidebar(open){
-  document.querySelector(".sidebar").classList.toggle("open", !!open);
-  document.body.classList.toggle("sb-open", !!open);
-}
 
 /* ================= 技能系统 ================= */
 const SKILLS = [
@@ -3498,8 +3485,8 @@ function resetBgImage(){
       <button class="btn-ghost" style="padding:5px 10px;font-size:12px" data-crop-ratio="1" onclick="setCropRatio(1,this)">1:1 方形</button>
     </div>
     <div style="position:relative;overflow:auto;flex:1;background:#111;border-radius:8px;min-height:200px">
-      <img id="cropImgEl" style="display:none;max-width:100%;max-height:58vh;display:block;margin:0 auto">
-<canvas id="cropCanvas" style="display:block;max-width:100%;border-radius:10px;touch-action:none"></canvas>
+      <img id="cropImgEl" style="display:none;max-width:100%;max-height:58vh;margin:0 auto">
+      <canvas id="cropCanvas" style="display:block;max-width:100%;border-radius:10px;touch-action:none"></canvas>
 <div id="cropZoomRow" style="display:flex;gap:8px;align-items:center;justify-content:center;margin-top:8px">
   <button class="btn-ghost" style="padding:6px 14px;font-size:14px" onclick="cropZoom(0.8)">－</button>
   <span style="font-size:11px;color:var(--faint)">拖动图片调整位置 · 双指捏合缩放</span>
@@ -3859,31 +3846,16 @@ function deleteMyWall(i){
 /* ================= 专属壁纸库 & 照片漂浮 ================= */
 let WALL_COUNT = 25;
 let WALL_IDS = null;   // 服务端返回的真实编号；null 时退回 1..WALL_COUNT
-/* 壁纸来源：本机 server 提供就用本机；手机独立版（file:// 打开）没有服务器，
-   自动退回 GitHub Pages 托管的公共壁纸库 */
-const PAGES_WALL_BASE = "https://zhao-shifan.github.io/agent-desktop";
-let WALL_BASE = "";
-function wallSrc(name){ return `${WALL_BASE}/wallpapers/${name}`; }
-async function detectWallBase(){
-  try{
-    const t = await fetch("/wallpapers/wp001.jpg", {method:"HEAD", cache:"no-store"});
-    WALL_BASE = t.ok ? "" : PAGES_WALL_BASE;
-  }catch(e){ WALL_BASE = PAGES_WALL_BASE; }
-}
-detectWallBase();
 let photoRainOn = localStorage.getItem("aria.photoRain") === "1";
 async function refreshWallCount(){
-  await detectWallBase();
-  if(WALL_BASE === ""){
-    try{
-      const r = await fetch("/api/wallpapers");
-      const d = await r.json();
-      if(d.count) WALL_COUNT = d.count;
-      if(Array.isArray(d.ids) && d.ids.length){ WALL_IDS = d.ids; WALL_COUNT = d.ids.length; }
-      if(Array.isArray(d.cards) && d.cards.length) window.WALL_CARD_IDS = d.cards;
-    }catch(e){}
-  }
-  const t = $("wallCountTxt"); if(t) t.textContent = WALL_COUNT;
+  try{
+    const r = await fetch("/api/wallpapers");
+    const d = await r.json();
+    if(d.count) WALL_COUNT = d.count;
+    if(Array.isArray(d.ids) && d.ids.length){ WALL_IDS = d.ids; WALL_COUNT = d.ids.length; }
+    if(Array.isArray(d.cards) && d.cards.length) window.WALL_CARD_IDS = d.cards;
+    const t = $("wallCountTxt"); if(t) t.textContent = WALL_COUNT;
+  }catch(e){}
 }
 function switchThemeTab(tab, btn){
   document.querySelectorAll(".tab-btn").forEach(b=>b.classList.toggle("on", b===btn));
@@ -3899,7 +3871,7 @@ function renderWallpapers(){
   const ids = (WALL_IDS && WALL_IDS.length) ? WALL_IDS : Array.from({length: WALL_COUNT}, (_, k) => k + 1);
   let html = "";
   for(const i of ids){
-    const src = wallSrc(`wp${String(i).padStart(3,"0")}${ver}.jpg`);
+    const src = `/wallpapers/wp${String(i).padStart(3,"0")}${ver}.jpg`;
     html += `<div class="wall-thumb" onclick="applyWallpaper('${src}')" title="点击直接设为背景">
       <img src="${src}" loading="lazy" alt="壁纸${i}" onerror="this.closest('.wall-thumb').style.display='none'">
     </div>`;
@@ -4109,7 +4081,7 @@ function pickWallUpload(){ $("wallUploadInput").click(); }
     const ids = (window.WALL_CARD_IDS && window.WALL_CARD_IDS.length)
       ? window.WALL_CARD_IDS : Array.from({length: 40}, (_, k) => k + 1);
     for(const i of ids){
-      const im = new Image(); im.src = wallSrc(`card${String(i).padStart(2,"0")}.jpg`); photoImgs.push(im);
+      const im = new Image(); im.src = `/wallpapers/card${String(i).padStart(2,"0")}.jpg`; photoImgs.push(im);
     }
   }
   const usablePhotos = () => { ensurePhotos(); return photoImgs.filter(im=>im.complete && im.naturalWidth); };
@@ -4151,11 +4123,10 @@ function applyStandaloneUI(){
   const note=$("composerNote"); if(note) note.textContent="支持文档 / 图片 · 独立模式";
 }
 if(STANDALONE) applyStandaloneUI();
-/* PWA：手机独立版不注册 Service Worker
-   （file:// 打开注册不了；Pages 托管时离线意义不大，且避免与桌面 PWA 的 sw.js 冲突）
+/* PWA：注册 Service Worker（只对 http/https 生效，file:// 打开时跳过） */
 if("serviceWorker" in navigator && location.protocol.startsWith("http")){
-  navigator.serviceWorker.register("./sw.js").catch(()=>{});
-} */
+  /* 手机独立版：本地 file:// 打开，不注册 Service Worker */ });
+}
 /* 开箱即用：无配置时默认接入免费模型（Key 来自本机私有配置，不会上传） */
 if(!cfg || !cfg.apiKey){
   if(window.LOCAL_DEFAULT_KEY && !STANDALONE){
@@ -4178,30 +4149,50 @@ if(!localStorage.getItem("aria.onboarded")){
 }
 
 /* ================= 手机扫码 ================= */
+/* 扫码打开 GitHub Pages 托管的手机独立版：电脑不开机也能用；
+   手机版在 Pages 上没有 /api，会自动降级为独立模式（前端直连模型 API） */
+const PAGES_MOBILE_URL = "https://zhao-shifan.github.io/agent-desktop/mobile.html";
 async function openQR(){
   try{
-    const r = await fetch("/api/lan");
-    const d = await r.json();
-    const url = d.url;
-    $("qrUrl").textContent = url;
     if(typeof qrcode === "undefined"){
       await new Promise((res, rej)=>{ const s=document.createElement("script"); s.src="./qrcode.js"; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
     }
-    const qr = qrcode(0, "M");
-    qr.addData(url); qr.make();
-    $("qrBox").innerHTML = `<img src="${qr.createDataURL(6, 8)}" alt="QR" style="width:210px;image-rendering:pixelated;border-radius:12px;background:#fff;padding:10px">`;
+    const mkQR = (u, px) => { const q = qrcode(0, "M"); q.addData(u); q.make(); return `<img src="${q.createDataURL(6, 8)}" alt="QR" style="width:${px||190}px;image-rendering:pixelated;border-radius:12px;background:#fff;padding:9px">`; };
+    // 局域网地址只有在「由本地服务打开」时才有；file:// 打开时取不到，只给在线版
+    let lanUrl = "";
+    try{ const r = await fetch("/api/lan"); const d = await r.json(); if(d && d.ok && d.url) lanUrl = d.url; }catch(e){}
+    let html = "";
+    if(lanUrl){
+      html += `<div style="width:100%;text-align:left;font-size:12.5px;color:var(--txt);margin-bottom:6px"><b>① 同一 WiFi</b> · 走电脑代理，最稳</div>`
+           +  mkQR(lanUrl)
+           + `<div style="font-size:11px;color:var(--dim);margin:4px 0 14px;word-break:break-all">${lanUrl}</div>`
+           + `<div style="width:100%;text-align:left;font-size:12.5px;color:var(--txt);margin-bottom:6px"><b>② 任意网络</b> · 在线版，不用电脑</div>`;
+    } else {
+      html += `<div style="width:100%;text-align:left;font-size:12.5px;color:var(--txt);margin-bottom:6px"><b>在线手机版</b> · 不用电脑</div>`;
+    }
+    html += mkQR(PAGES_MOBILE_URL);
+    html += `<div style="font-size:11px;color:var(--dim);margin-top:4px;word-break:break-all">${PAGES_MOBILE_URL}</div>`;
+    $("qrBox").innerHTML = html;
+    $("qrUrl").textContent = "提示：在线版是浏览器直连模型，智谱/GLM 不返回跨域头会报 Failed to fetch；想用 GLM 请扫①（同一 WiFi）。";
     $("qrOverlay").classList.add("show");
   }catch(e){
     $("qrBox").innerHTML = "";
     $("qrOverlay").classList.add("show");
-    $("qrUrl").textContent = "二维码生成失败，手动在手机浏览器输入下方地址即可";
+    $("qrUrl").textContent = PAGES_MOBILE_URL + "（二维码生成失败，手动在手机浏览器打开此地址）";
     setStatus("二维码生成失败："+e.message, true);
   }
 }
 function copyLan(){
-  navigator.clipboard.writeText($("qrUrl").textContent).then(()=>setStatus("地址已复制"));
+  navigator.clipboard.writeText(PAGES_MOBILE_URL).then(()=>setStatus("地址已复制"));
 }
 $("qrOverlay").addEventListener("click", e=>{ /* 只通过 ✕ 关闭 */ });
+/* 手机端（在线手机版 / APK / 手机浏览器打开局域网地址）不需要「手机扫码使用」入口，直接隐藏 */
+(function(){
+  const isPhone = /Android|iPhone|iPad|iPod|Mobile|HarmonyOS/i.test(navigator.userAgent)
+                  || Math.min(screen.width, screen.height) < 520;
+  if(!isPhone) return;
+  const qb = $("qrBtn"); if(qb) qb.style.display = "none";
+})();
 </script>
 <script>
 /* ===== 手机键盘自适应：visualViewport 计算键盘高度，输入框始终可见 ===== */
@@ -4221,7 +4212,7 @@ $("input").addEventListener("focus", ()=>{
   setTimeout(()=>{ $("input").scrollIntoView({block:"nearest"}); scrollBottom(); }, 300);
 });
 /* ===== 手机端侧边栏手势（参考 DeepSeek）：左缘右滑展开 / 往左滑或点空白折叠 ===== */
-$("sbScrim").addEventListener("click", ()=>{ setSidebar(false); });
+$("sbScrim").addEventListener("click", ()=>{ document.querySelector(".sidebar").classList.remove("open"); });
 (function(){
   let sx = 0, sy = 0, tracking = false, fromEdge = false;
   document.addEventListener("touchstart", e=>{
@@ -4235,10 +4226,10 @@ $("sbScrim").addEventListener("click", ()=>{ setSidebar(false); });
     const dx = t.clientX - sx, dy = Math.abs(t.clientY - sy);
     const sb = document.querySelector(".sidebar");
     if(dy > 70) return;   // 主要是竖向滚动，不当作手势
-    if(fromEdge && dx > 55){ setSidebar(true); return; }
+    if(fromEdge && dx > 55){ sb.classList.add("open"); return; }
     if(sb.classList.contains("open") && dx < -55){
       const r = sb.getBoundingClientRect();
-      if(t.clientX > r.right){ setSidebar(false); }
+      if(t.clientX > r.right){ sb.classList.remove("open"); }
     }
   }, {passive:true});
 })();
