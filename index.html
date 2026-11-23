@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -893,12 +893,12 @@ body:has(.sidebar.open) #sbScrim{display:block}
 
 <!-- 扫码 -->
 <div class="overlay" id="qrOverlay">
-  <div class="modal" style="text-align:center;width:min(360px,100%)">
+  <div class="modal" style="text-align:center;width:min(360px,100%);padding-top:22px">
     <div class="modal-head">
       <h3>手机扫码使用</h3>
       <button class="x-close" onclick="$('qrOverlay').classList.remove('show')">✕</button>
     </div>
-    <p class="sub">确保手机与电脑连接同一个 WiFi，用手机相机或微信扫一扫即可打开。<br>打开后建议在浏览器菜单里「添加到主屏幕」，即可像 App 一样全屏使用。</p>
+    <p class="sub">扫一扫打开 <b>GitHub Pages 在线手机版</b>——不需要电脑开机，任何时候都能用。<br>打开后建议在浏览器菜单里「添加到主屏幕」，即可像 App 一样全屏使用。</p>
     <div id="qrBox" style="display:flex;justify-content:center;padding:10px 0 6px"></div>
     <p style="font-size:12px;color:var(--dim);margin:10px 0 4px;word-break:break-all" id="qrUrl"></p>
     <div class="modal-actions">
@@ -3892,28 +3892,28 @@ if(!localStorage.getItem("aria.onboarded")){
 }
 
 /* ================= 手机扫码 ================= */
+/* 扫码打开 GitHub Pages 托管的手机独立版：电脑不开机也能用；
+   手机版在 Pages 上没有 /api，会自动降级为独立模式（前端直连模型 API） */
+const PAGES_MOBILE_URL = "https://zhao-shifan.github.io/agent-desktop/mobile.html";
 async function openQR(){
   try{
-    const r = await fetch("/api/lan");
-    const d = await r.json();
-    const url = d.url;
-    $("qrUrl").textContent = url;
+    $("qrUrl").textContent = PAGES_MOBILE_URL;
     if(typeof qrcode === "undefined"){
       await new Promise((res, rej)=>{ const s=document.createElement("script"); s.src="./qrcode.js"; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
     }
     const qr = qrcode(0, "M");
-    qr.addData(url); qr.make();
+    qr.addData(PAGES_MOBILE_URL); qr.make();
     $("qrBox").innerHTML = `<img src="${qr.createDataURL(6, 8)}" alt="QR" style="width:210px;image-rendering:pixelated;border-radius:12px;background:#fff;padding:10px">`;
     $("qrOverlay").classList.add("show");
   }catch(e){
     $("qrBox").innerHTML = "";
     $("qrOverlay").classList.add("show");
-    $("qrUrl").textContent = "二维码生成失败，手动在手机浏览器输入下方地址即可";
+    $("qrUrl").textContent = PAGES_MOBILE_URL + "（生成失败，手动在手机浏览器打开此地址）";
     setStatus("二维码生成失败："+e.message, true);
   }
 }
 function copyLan(){
-  navigator.clipboard.writeText($("qrUrl").textContent).then(()=>setStatus("地址已复制"));
+  navigator.clipboard.writeText(PAGES_MOBILE_URL).then(()=>setStatus("地址已复制"));
 }
 $("qrOverlay").addEventListener("click", e=>{ /* 只通过 ✕ 关闭 */ });
 </script>

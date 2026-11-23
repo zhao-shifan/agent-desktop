@@ -1,19 +1,20 @@
 name: deploy-pages
 
-# 把「能在浏览器里装成 App 的那一份前端」发布到 GitHub Pages（https，手机才能安装 PWA）。
+# 把「能在浏览器里装成 PWA 的那份前端」+「手机独立版」+「壁纸库」发布到 GitHub Pages（https，手机才能安装 PWA）。
 # 仓库设置里需要把 Pages 来源改成 "GitHub Actions" 一次。
-
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
       - "index.html"
+      - "小凡智能体-手机独立版.html"
       - "qrcode.js"
       - "official_skills.js"
       - "manifest.json"
       - "sw.js"
       - "icons/**"
+      - "wallpapers/**"
       - ".github/workflows/deploy-pages.yml"
 
 permissions:
@@ -34,11 +35,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 组装站点目录（只放前端，不放 server.py / 壁纸 / 配置）
+      - name: 组装站点目录（前端 + 手机版 + 壁纸，不放 server.py / 配置）
         run: |
           mkdir -p _site
           cp index.html qrcode.js official_skills.js manifest.json sw.js _site/
+          cp "小凡智能体-手机独立版.html" _site/mobile.html
           cp -r icons _site/icons
+          cp -r wallpapers _site/wallpapers
 
       - uses: actions/configure-pages@v5
 

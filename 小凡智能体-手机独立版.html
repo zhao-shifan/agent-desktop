@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -646,6 +646,8 @@ body::before{
 /* 手机端侧边栏遮罩：展开时盖住内容区，点空白即折叠（参考 DeepSeek） */
 #sbScrim{position:fixed;inset:0;z-index:49;background:rgba(0,0,0,.42);display:none}
 body:has(.sidebar.open) #sbScrim{display:block}
+/* 侧栏展开时隐藏悬浮汉堡按钮，收起后恢复（避免按钮叠在侧栏上） */
+body:has(.sidebar.open) .menu-toggle{display:none}
 @media(max-width:760px){
   .sidebar{position:fixed;left:0;top:0;bottom:0;z-index:50;transform:translateX(-100%);transition:.25s}
   .sidebar.open{transform:none;box-shadow:0 0 60px rgba(0,0,0,.6)}
@@ -893,7 +895,7 @@ body:has(.sidebar.open) #sbScrim{display:block}
 
 <!-- 扫码 -->
 <div class="overlay" id="qrOverlay">
-  <div class="modal" style="text-align:center;width:min(360px,100%)">
+  <div class="modal" style="text-align:center;width:min(360px,100%);padding-top:22px">
     <div class="modal-head">
       <h3>手机扫码使用</h3>
       <button class="x-close" onclick="$('qrOverlay').classList.remove('show')">✕</button>
@@ -3591,14 +3593,30 @@ function deleteMyWall(i){
 /* ================= 专属壁纸库 & 照片漂浮 ================= */
 let WALL_COUNT = 25;
 let WALL_IDS = null;   // 服务端返回的真实编号；null 时退回 1..WALL_COUNT
+/* 壁纸来源：本机 server 提供就用本机；手机独立版（file:// 打开）没有服务器，
+   自动退回 GitHub Pages 托管的公共壁纸库 */
+const PAGES_WALL_BASE = "https://zhao-shifan.github.io/agent-desktop";
+let WALL_BASE = "";
+function wallSrc(name){ return `${WALL_BASE}/wallpapers/${name}`; }
+async function detectWallBase(){
+  try{
+    const t = await fetch("/wallpapers/wp001.jpg", {method:"HEAD", cache:"no-store"});
+    WALL_BASE = t.ok ? "" : PAGES_WALL_BASE;
+  }catch(e){ WALL_BASE = PAGES_WALL_BASE; }
+}
+detectWallBase();
 let photoRainOn = localStorage.getItem("aria.photoRain") === "1";
 async function refreshWallCount(){
-  try{
-    const r = await fetch("/api/wallpapers");
-    const d = await r.json();
-    if(d.count) WALL_COUNT = d.count;
-    if(Array.isArray(d.ids) && d.ids.length){ WALL_IDS = d.ids; WALL_COUNT = d.ids.length; }
-    if(Array.isArray(d.cards) && d.cards.length) window.WALL_CARD_IDS = d.cards;
+  await detectWallBase();
+  if(WALL_BASE === ""){
+    try{
+      const r = await fetch("/api/wallpapers");
+      const d = await r.json();
+      if(d.count) WALL_COUNT = d.count;
+      if(Array.isArray(d.ids) && d.ids.length){ WALL_IDS = d.ids; WALL_COUNT = d.ids.length; }
+      if(Array.isArray(d.cards) && d.cards.length) window.WALL_CARD_IDS = d.cards;
+    }catch(e){}
+  }
     const t = $("wallCountTxt"); if(t) t.textContent = WALL_COUNT;
   }catch(e){}
 }
@@ -3614,7 +3632,7 @@ function renderWallpapers(){
   const ids = (WALL_IDS && WALL_IDS.length) ? WALL_IDS : Array.from({length: WALL_COUNT}, (_, k) => k + 1);
   let html = "";
   for(const i of ids){
-    const src = `/wallpapers/wp${String(i).padStart(3,"0")}${ver}.jpg`;
+    const src = wallSrc(`wp${String(i).padStart(3,"0")}${ver}.jpg`);
     html += `<div class="wall-thumb" onclick="applyWallpaper('${src}')" title="点击直接设为背景">
       <img src="${src}" loading="lazy" alt="壁纸${i}" onerror="this.closest('.wall-thumb').style.display='none'">
     </div>`;
@@ -3824,7 +3842,7 @@ function pickWallUpload(){ $("wallUploadInput").click(); }
     const ids = (window.WALL_CARD_IDS && window.WALL_CARD_IDS.length)
       ? window.WALL_CARD_IDS : Array.from({length: 40}, (_, k) => k + 1);
     for(const i of ids){
-      const im = new Image(); im.src = `/wallpapers/card${String(i).padStart(2,"0")}.jpg`; photoImgs.push(im);
+      const im = new Image(); im.src = wallSrc(`card${String(i).padStart(2,"0")}.jpg`); photoImgs.push(im);
     }
   }
   const usablePhotos = () => { ensurePhotos(); return photoImgs.filter(im=>im.complete && im.naturalWidth); };
