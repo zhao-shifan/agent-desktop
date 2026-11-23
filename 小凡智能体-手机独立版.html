@@ -138,8 +138,8 @@ body::before{
 .expand-btn{
   position:fixed;top:14px;left:14px;z-index:45;width:40px;height:40px;border-radius:13px;display:none;
   border:1px solid rgba(226,184,87,.45);cursor:pointer;font-size:15px;
-  background:linear-gradient(135deg,rgba(38,33,24,.92),rgba(24,22,18,.92));
-  color:var(--accent2);backdrop-filter:blur(12px);transition:.2s;
+  background:#262118;   /* 不透明：避免背后壁纸/特效透出来显得像藏了张图 */
+  color:var(--accent2);transition:.2s;
   box-shadow:0 3px 16px rgba(226,184,87,.18);
 }
 .expand-btn.show{display:flex;align-items:center;justify-content:center}
@@ -2132,16 +2132,54 @@ function copyMsg(idx){
 }
 /* 纯前端兜底：生成 Word 兼容的 .doc（HTML+Office 命名空间，Word/WPS 可直接打开编辑），不依赖服务端 */
 function downloadBlob(blob, name){
+  // 手机浏览器兼容：立即 revoke 会中断下载（移动端 Chrome 已知问题），延后再回收
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  a.click(); URL.revokeObjectURL(a.href);
+  const url = URL.createObjectURL(blob);
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+}
+/* 手机端更友好的下载：支持系统分享面板时优先分享（微信内置浏览器 blob 下载经常被拦） */
+async function downloadOrShare(blob, name){
+  const f = new File([blob], name, {type: blob.type});
+  try{
+    if(navigator.canShare && navigator.canShare({files:[f]})){
+      await navigator.share({files:[f], title:name});
+      return true;
+    }
+  }catch(e){ if(e && e.name === "AbortError") return true; /* 用户取消分享 */ }
+  downloadBlob(blob, name);
+  return true;
 }
 function msgStamp(){ return new Date().toLocaleDateString("zh-CN").replace(/\//g,"-"); }
-function downloadDocLocal(t){
-  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]--><style>body{font-family:"微软雅黑",sans-serif;font-size:12pt;line-height:1.8}h1{font-size:18pt}h2{font-size:15pt}h3{font-size:13pt}table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px 8px}</style></head><body>${mdRender(t)}</body></html>`;
-  downloadBlob(new Blob(["\ufeff"+html], {type:"application/msword"}), `小凡智能体-${Date.now()}.doc`);
-  setStatus("Word 文档（.doc）已生成，开始下载 ✅");
+/* 独立模式导出 Word：
+   1) 优先加载 html-docx-js（github.com/evidenceprime/html-docx-js，1.2k star，MIT，
+      专做「在浏览器里把 HTML 转 DOCX」）生成真正的 .docx；
+   2) CDN 加载失败（离线）时退回 Word 兼容的 .doc（HTML 内容 + msword MIME，Word/WPS 都能打开）。 */
+let _htmlDocxLoading = null;
+function loadHtmlDocx(){
+  if(window.htmlDocx) return Promise.resolve();
+  if(_htmlDocxLoading) return _htmlDocxLoading;
+  _htmlDocxLoading = new Promise((res, rej)=>{
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/html-docx-js@0.3.1/dist/html-docx.js";
+    s.onload = res; s.onerror = ()=>{ _htmlDocxLoading = null; rej(new Error("cdn")); };
+    document.head.appendChild(s);
+  });
+  return _htmlDocxLoading;
+}
+async function downloadDocLocal(t){
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>body{font-family:"微软雅黑",sans-serif;font-size:12pt;line-height:1.8}h1{font-size:18pt}h2{font-size:15pt}h3{font-size:13pt}table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px 8px}</style></head><body>${mdRender(t)}</body></html>`;
+  try{
+    setStatus("正在生成 Word 文档（.docx）…");
+    await loadHtmlDocx();
+    const converted = htmlDocx.asBlob(html);
+    await downloadOrShare(converted, `小凡智能体-${msgStamp()}.docx`);
+    setStatus("Word 文档（.docx）已生成 ✅");
+    return;
+  }catch(e){ /* 离线/CDN 不通 → 走 .doc 兜底 */ }
+  await downloadOrShare(new Blob(["\ufeff"+html], {type:"application/msword"}), `小凡智能体-${msgStamp()}.doc`);
+  setStatus("Word 文档（.doc，离线模式）已生成 ✅");
 }
 function exportMd(idx){
   const t = rawMsgText(idx);
@@ -2325,7 +2363,7 @@ function rawMsgText(idx){
 async function exportDoc(idx){
   const m = history[idx];
   const t = typeof m.content==="string" ? m.content : m.content[0]?.text || "";
-  if(STANDALONE){ downloadDocLocal(t); return; }   // 独立模式直接本地生成 .doc
+  if(STANDALONE){ await downloadDocLocal(t); return; }   // 独立模式直接本地生成 .docx/.doc
   setStatus("正在生成 Word 文档…");
   try{
     const r = await fetch("/api/docx",{method:"POST",headers:{"Content-Type":"application/json"},

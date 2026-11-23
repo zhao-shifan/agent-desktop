@@ -138,8 +138,8 @@ body::before{
 .expand-btn{
   position:fixed;top:14px;left:14px;z-index:45;width:40px;height:40px;border-radius:13px;display:none;
   border:1px solid rgba(226,184,87,.45);cursor:pointer;font-size:15px;
-  background:linear-gradient(135deg,rgba(38,33,24,.92),rgba(24,22,18,.92));
-  color:var(--accent2);backdrop-filter:blur(12px);transition:.2s;
+  background:#262118;   /* 不透明：避免背后壁纸/特效透出来显得像藏了张图 */
+  color:var(--accent2);transition:.2s;
   box-shadow:0 3px 16px rgba(226,184,87,.18);
 }
 .expand-btn.show{display:flex;align-items:center;justify-content:center}
