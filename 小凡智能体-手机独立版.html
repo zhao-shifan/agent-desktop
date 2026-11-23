@@ -651,8 +651,8 @@ body:has(.sidebar.open) .menu-toggle{display:none}
 @media(max-width:760px){
   .sidebar{position:fixed;left:0;top:0;bottom:0;z-index:50;transform:translateX(-100%);transition:.25s}
   .sidebar.open{transform:none;box-shadow:0 0 60px rgba(0,0,0,.6)}
-  /* 汉堡按钮避开手机状态栏/挖孔（参考 DeepSeek：按钮在内容区顶部，不顶到屏幕边缘） */
-  .menu-toggle{display:flex;position:fixed;top:calc(env(safe-area-inset-top, 0px) + 44px);left:14px;z-index:60;width:38px;height:38px;border-radius:11px;
+  /* 汉堡按钮贴近页面顶部（参考 DeepSeek），只避开手机状态栏/挖孔 */
+  .menu-toggle{display:flex;position:fixed;top:calc(env(safe-area-inset-top, 0px) + 12px);left:14px;z-index:60;width:38px;height:38px;border-radius:11px;
     border:1px solid var(--line2);background:rgba(20,20,24,.8);backdrop-filter:blur(10px);color:var(--dim);
     align-items:center;justify-content:center;cursor:pointer}
   .chat{padding-top:calc(env(safe-area-inset-top, 0px) + 92px)}
@@ -709,13 +709,11 @@ body:has(.sidebar.open) .menu-toggle{display:none}
   .round-btn{width:32px;height:32px}
   .btn-send{width:34px;height:34px;flex:0 0 auto}
 
-  /* 弹窗：DeepSeek 手机端式底部抽屉——贴底滑出，高度留白，不整屏糊脸 */
+  /* 弹窗：手机端与桌面一致，保持屏幕居中（不用贴底抽屉式） */
   .overlay{padding:0}
-  .overlay.show{align-items:flex-end}
   .modal{width:100%!important;max-width:100%!important;max-height:82vh;height:auto;
-         border-radius:18px 18px 0 0;padding:0 16px 16px;animation:sheetUp .25s ease}
+         border-radius:18px;padding:0 16px 16px}
   .modal-fixed{margin:0 -16px;padding:16px 16px 0}
-  @keyframes sheetUp{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
   .modal h3{font-size:17px}
   .modal .sub{font-size:12px;margin-bottom:16px}
   .modal img,.modal table,.modal pre{max-width:100%}
