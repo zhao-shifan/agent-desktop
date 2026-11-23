@@ -4125,7 +4125,7 @@ function applyStandaloneUI(){
 if(STANDALONE) applyStandaloneUI();
 /* PWA：注册 Service Worker（只对 http/https 生效，file:// 打开时跳过） */
 if("serviceWorker" in navigator && location.protocol.startsWith("http")){
-  /* 手机独立版：本地 file:// 打开，不注册 Service Worker */ });
+  /* 手机独立版：本地 file:// 打开，不注册 Service Worker */
 }
 /* 开箱即用：无配置时默认接入免费模型（Key 来自本机私有配置，不会上传） */
 if(!cfg || !cfg.apiKey){
