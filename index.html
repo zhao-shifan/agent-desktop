@@ -2162,86 +2162,6 @@ function loadHtmlDocx(){
 }
 async function downloadDocLocal(t){
   const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>body{font-family:"微软雅黑",sans-serif;font-size:12pt;line-height:1.8}h1{font-size:18pt}h2{font-size:15pt}h3{font-size:13pt}table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px 8px}</style></head><body>${mdRender(t)}
-<!-- 自定义下拉组件：替代原生 select 的系统弹出框（手机上是白框很丑），逻辑仍用隐藏的 <select>，onchange 不变 -->
-<style id="customDropdownCss">
-.cd-native{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;margin:0!important;padding:0!important}
-.cd-btn{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;
-  border:1px solid var(--line2,rgba(255,255,255,.14));background:var(--bg2,#1c1d22);color:var(--txt,#e8e6df);
-  border-radius:10px;padding:8px 12px;font-size:12.5px;font-family:inherit;min-height:36px;text-align:left;transition:.15s}
-.cd-btn:hover{border-color:var(--accent,#e2b857)}
-.cd-btn .cd-arrow{font-size:9px;opacity:.65;flex-shrink:0}
-.cd-menu{position:fixed;z-index:1000;min-width:170px;max-height:44vh;overflow-y:auto;
-  background:#1c1d22;border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:6px;
-  box-shadow:0 14px 44px rgba(0,0,0,.55);display:none}
-.cd-menu.show{display:block}
-.cd-item{padding:10px 12px;border-radius:8px;font-size:13px;color:#d8d6cf;cursor:pointer;display:flex;align-items:center;gap:8px;white-space:nowrap}
-.cd-item:hover{background:rgba(226,184,87,.14)}
-.cd-item.on{color:var(--accent,#e2b857);font-weight:600}
-.cd-item .cd-check{margin-left:auto;font-size:12px;flex-shrink:0}
-body[data-theme="light-gray"] .cd-menu, body[data-theme="mint"] .cd-menu, body[data-theme="light-gray"] .cd-btn, body[data-theme="mint"] .cd-btn{background:#fff;color:#333;border-color:#ddd}
-body[data-theme="light-gray"] .cd-item, body[data-theme="mint"] .cd-item{color:#444}
-</style>
-<script>
-(function(){
-  function enhance(sel){
-    if(sel.dataset.cd) return; sel.dataset.cd = "1";
-    if(sel.multiple) return;
-    const w = sel.getBoundingClientRect().width;
-    sel.classList.add("cd-native");
-    const btn = document.createElement("button");
-    btn.type = "button"; btn.className = "cd-btn";
-    btn.style.width = (w > 40 ? Math.ceil(w) : 0) + "px";
-    if(!w || w <= 40) btn.style.width = "auto";
-    const menu = document.createElement("div"); menu.className = "cd-menu";
-    const syncBtn = () => {
-      const o = sel.options[sel.selectedIndex];
-      btn.innerHTML = '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
-        (o ? o.textContent : "请选择").replace(/</g,"&lt;") + '</span><span class="cd-arrow">▼</span>';
-    };
-    const buildMenu = () => {
-      menu.innerHTML = "";
-      [...sel.options].forEach(o => {
-        const it = document.createElement("div");
-        it.className = "cd-item" + (o.selected ? " on" : "");
-        it.innerHTML = '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
-          o.textContent.replace(/</g,"&lt;") + '</span><span class="cd-check">' + (o.selected ? "✓" : "") + '</span>';
-        it.addEventListener("click", () => {
-          sel.value = o.value;
-          sel.dispatchEvent(new Event("change", {bubbles:true}));
-          close();
-        });
-        menu.appendChild(it);
-      });
-    };
-    const close = () => menu.classList.remove("show");
-    sel.addEventListener("change", () => { syncBtn(); buildMenu(); });
-    new MutationObserver(() => { syncBtn(); buildMenu(); }).observe(sel, {childList:true});
-    btn.addEventListener("click", e => {
-      e.stopPropagation();
-      const wasOpen = menu.classList.contains("show");
-      document.querySelectorAll(".cd-menu.show").forEach(m => m.classList.remove("show"));
-      if(wasOpen) return;
-      buildMenu(); syncBtn();
-      const r = btn.getBoundingClientRect();
-      menu.classList.add("show");
-      const mw = menu.offsetWidth, mh = menu.offsetHeight;
-      let left = Math.min(r.left, window.innerWidth - mw - 10);
-      let top = r.bottom + 6;
-      if(top + mh > window.innerHeight - 10) top = Math.max(10, r.top - mh - 6);
-      menu.style.left = Math.max(10,left) + "px"; menu.style.top = top + "px";
-      menu.style.minWidth = Math.max(r.width, 160) + "px";
-    });
-    menu.addEventListener("click", e => e.stopPropagation());
-    document.addEventListener("click", close);
-    sel.after(btn);
-    document.body.appendChild(menu);
-    syncBtn(); buildMenu();
-  }
-  const init = () => document.querySelectorAll("select").forEach(enhance);
-  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
-  else init();
-})();
-</script>
 </body></html>`;
   try{
     setStatus("正在生成 Word 文档（.docx）…");
@@ -2293,86 +2213,6 @@ function printMsg(idx){
   const w = window.open("", "_blank");
   if(!w){ setStatus("浏览器拦截了弹窗，请允许弹窗后重试", true); return; }
   w.document.write(`<html><head><meta charset="utf-8"><title>打印</title><style>body{font-family:"微软雅黑",sans-serif;font-size:12pt;line-height:1.8;max-width:760px;margin:24px auto;color:#222}h1{font-size:18pt}h2{font-size:15pt}h3{font-size:13pt}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:5px 9px}pre{background:#f5f5f5;padding:10px;border-radius:8px;white-space:pre-wrap}</style></head><body>${mdRender(t)}<script>window.onload=()=>window.print()<\/script>
-<!-- 自定义下拉组件：替代原生 select 的系统弹出框（手机上是白框很丑），逻辑仍用隐藏的 <select>，onchange 不变 -->
-<style id="customDropdownCss">
-.cd-native{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;margin:0!important;padding:0!important}
-.cd-btn{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;
-  border:1px solid var(--line2,rgba(255,255,255,.14));background:var(--bg2,#1c1d22);color:var(--txt,#e8e6df);
-  border-radius:10px;padding:8px 12px;font-size:12.5px;font-family:inherit;min-height:36px;text-align:left;transition:.15s}
-.cd-btn:hover{border-color:var(--accent,#e2b857)}
-.cd-btn .cd-arrow{font-size:9px;opacity:.65;flex-shrink:0}
-.cd-menu{position:fixed;z-index:1000;min-width:170px;max-height:44vh;overflow-y:auto;
-  background:#1c1d22;border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:6px;
-  box-shadow:0 14px 44px rgba(0,0,0,.55);display:none}
-.cd-menu.show{display:block}
-.cd-item{padding:10px 12px;border-radius:8px;font-size:13px;color:#d8d6cf;cursor:pointer;display:flex;align-items:center;gap:8px;white-space:nowrap}
-.cd-item:hover{background:rgba(226,184,87,.14)}
-.cd-item.on{color:var(--accent,#e2b857);font-weight:600}
-.cd-item .cd-check{margin-left:auto;font-size:12px;flex-shrink:0}
-body[data-theme="light-gray"] .cd-menu, body[data-theme="mint"] .cd-menu, body[data-theme="light-gray"] .cd-btn, body[data-theme="mint"] .cd-btn{background:#fff;color:#333;border-color:#ddd}
-body[data-theme="light-gray"] .cd-item, body[data-theme="mint"] .cd-item{color:#444}
-</style>
-<script>
-(function(){
-  function enhance(sel){
-    if(sel.dataset.cd) return; sel.dataset.cd = "1";
-    if(sel.multiple) return;
-    const w = sel.getBoundingClientRect().width;
-    sel.classList.add("cd-native");
-    const btn = document.createElement("button");
-    btn.type = "button"; btn.className = "cd-btn";
-    btn.style.width = (w > 40 ? Math.ceil(w) : 0) + "px";
-    if(!w || w <= 40) btn.style.width = "auto";
-    const menu = document.createElement("div"); menu.className = "cd-menu";
-    const syncBtn = () => {
-      const o = sel.options[sel.selectedIndex];
-      btn.innerHTML = '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
-        (o ? o.textContent : "请选择").replace(/</g,"&lt;") + '</span><span class="cd-arrow">▼</span>';
-    };
-    const buildMenu = () => {
-      menu.innerHTML = "";
-      [...sel.options].forEach(o => {
-        const it = document.createElement("div");
-        it.className = "cd-item" + (o.selected ? " on" : "");
-        it.innerHTML = '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
-          o.textContent.replace(/</g,"&lt;") + '</span><span class="cd-check">' + (o.selected ? "✓" : "") + '</span>';
-        it.addEventListener("click", () => {
-          sel.value = o.value;
-          sel.dispatchEvent(new Event("change", {bubbles:true}));
-          close();
-        });
-        menu.appendChild(it);
-      });
-    };
-    const close = () => menu.classList.remove("show");
-    sel.addEventListener("change", () => { syncBtn(); buildMenu(); });
-    new MutationObserver(() => { syncBtn(); buildMenu(); }).observe(sel, {childList:true});
-    btn.addEventListener("click", e => {
-      e.stopPropagation();
-      const wasOpen = menu.classList.contains("show");
-      document.querySelectorAll(".cd-menu.show").forEach(m => m.classList.remove("show"));
-      if(wasOpen) return;
-      buildMenu(); syncBtn();
-      const r = btn.getBoundingClientRect();
-      menu.classList.add("show");
-      const mw = menu.offsetWidth, mh = menu.offsetHeight;
-      let left = Math.min(r.left, window.innerWidth - mw - 10);
-      let top = r.bottom + 6;
-      if(top + mh > window.innerHeight - 10) top = Math.max(10, r.top - mh - 6);
-      menu.style.left = Math.max(10,left) + "px"; menu.style.top = top + "px";
-      menu.style.minWidth = Math.max(r.width, 160) + "px";
-    });
-    menu.addEventListener("click", e => e.stopPropagation());
-    document.addEventListener("click", close);
-    sel.after(btn);
-    document.body.appendChild(menu);
-    syncBtn(); buildMenu();
-  }
-  const init = () => document.querySelectorAll("select").forEach(enhance);
-  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
-  else init();
-})();
-</script>
 </body></html>`);
   w.document.close();
   setStatus("已打开打印窗口：可选择「另存为 PDF」🖨️");
@@ -2413,86 +2253,6 @@ async function attachExport(idx, type){
       }
       if(!blob){
         const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"></head><body>${mdRender(t)}
-<!-- 自定义下拉组件：替代原生 select 的系统弹出框（手机上是白框很丑），逻辑仍用隐藏的 <select>，onchange 不变 -->
-<style id="customDropdownCss">
-.cd-native{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;margin:0!important;padding:0!important}
-.cd-btn{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;
-  border:1px solid var(--line2,rgba(255,255,255,.14));background:var(--bg2,#1c1d22);color:var(--txt,#e8e6df);
-  border-radius:10px;padding:8px 12px;font-size:12.5px;font-family:inherit;min-height:36px;text-align:left;transition:.15s}
-.cd-btn:hover{border-color:var(--accent,#e2b857)}
-.cd-btn .cd-arrow{font-size:9px;opacity:.65;flex-shrink:0}
-.cd-menu{position:fixed;z-index:1000;min-width:170px;max-height:44vh;overflow-y:auto;
-  background:#1c1d22;border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:6px;
-  box-shadow:0 14px 44px rgba(0,0,0,.55);display:none}
-.cd-menu.show{display:block}
-.cd-item{padding:10px 12px;border-radius:8px;font-size:13px;color:#d8d6cf;cursor:pointer;display:flex;align-items:center;gap:8px;white-space:nowrap}
-.cd-item:hover{background:rgba(226,184,87,.14)}
-.cd-item.on{color:var(--accent,#e2b857);font-weight:600}
-.cd-item .cd-check{margin-left:auto;font-size:12px;flex-shrink:0}
-body[data-theme="light-gray"] .cd-menu, body[data-theme="mint"] .cd-menu, body[data-theme="light-gray"] .cd-btn, body[data-theme="mint"] .cd-btn{background:#fff;color:#333;border-color:#ddd}
-body[data-theme="light-gray"] .cd-item, body[data-theme="mint"] .cd-item{color:#444}
-</style>
-<script>
-(function(){
-  function enhance(sel){
-    if(sel.dataset.cd) return; sel.dataset.cd = "1";
-    if(sel.multiple) return;
-    const w = sel.getBoundingClientRect().width;
-    sel.classList.add("cd-native");
-    const btn = document.createElement("button");
-    btn.type = "button"; btn.className = "cd-btn";
-    btn.style.width = (w > 40 ? Math.ceil(w) : 0) + "px";
-    if(!w || w <= 40) btn.style.width = "auto";
-    const menu = document.createElement("div"); menu.className = "cd-menu";
-    const syncBtn = () => {
-      const o = sel.options[sel.selectedIndex];
-      btn.innerHTML = '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
-        (o ? o.textContent : "请选择").replace(/</g,"&lt;") + '</span><span class="cd-arrow">▼</span>';
-    };
-    const buildMenu = () => {
-      menu.innerHTML = "";
-      [...sel.options].forEach(o => {
-        const it = document.createElement("div");
-        it.className = "cd-item" + (o.selected ? " on" : "");
-        it.innerHTML = '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
-          o.textContent.replace(/</g,"&lt;") + '</span><span class="cd-check">' + (o.selected ? "✓" : "") + '</span>';
-        it.addEventListener("click", () => {
-          sel.value = o.value;
-          sel.dispatchEvent(new Event("change", {bubbles:true}));
-          close();
-        });
-        menu.appendChild(it);
-      });
-    };
-    const close = () => menu.classList.remove("show");
-    sel.addEventListener("change", () => { syncBtn(); buildMenu(); });
-    new MutationObserver(() => { syncBtn(); buildMenu(); }).observe(sel, {childList:true});
-    btn.addEventListener("click", e => {
-      e.stopPropagation();
-      const wasOpen = menu.classList.contains("show");
-      document.querySelectorAll(".cd-menu.show").forEach(m => m.classList.remove("show"));
-      if(wasOpen) return;
-      buildMenu(); syncBtn();
-      const r = btn.getBoundingClientRect();
-      menu.classList.add("show");
-      const mw = menu.offsetWidth, mh = menu.offsetHeight;
-      let left = Math.min(r.left, window.innerWidth - mw - 10);
-      let top = r.bottom + 6;
-      if(top + mh > window.innerHeight - 10) top = Math.max(10, r.top - mh - 6);
-      menu.style.left = Math.max(10,left) + "px"; menu.style.top = top + "px";
-      menu.style.minWidth = Math.max(r.width, 160) + "px";
-    });
-    menu.addEventListener("click", e => e.stopPropagation());
-    document.addEventListener("click", close);
-    sel.after(btn);
-    document.body.appendChild(menu);
-    syncBtn(); buildMenu();
-  }
-  const init = () => document.querySelectorAll("select").forEach(enhance);
-  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
-  else init();
-})();
-</script>
 </body></html>`;
         blob = new Blob(["\ufeff"+html], {type:"application/msword"});
         name = `文档-${msgStamp()}.doc`;
@@ -2578,86 +2338,6 @@ async function buildDocxBlob(t, idx){
   }
   if(!blob){
     const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"></head><body>${mdRender(t)}
-<!-- 自定义下拉组件：替代原生 select 的系统弹出框（手机上是白框很丑），逻辑仍用隐藏的 <select>，onchange 不变 -->
-<style id="customDropdownCss">
-.cd-native{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;margin:0!important;padding:0!important}
-.cd-btn{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;
-  border:1px solid var(--line2,rgba(255,255,255,.14));background:var(--bg2,#1c1d22);color:var(--txt,#e8e6df);
-  border-radius:10px;padding:8px 12px;font-size:12.5px;font-family:inherit;min-height:36px;text-align:left;transition:.15s}
-.cd-btn:hover{border-color:var(--accent,#e2b857)}
-.cd-btn .cd-arrow{font-size:9px;opacity:.65;flex-shrink:0}
-.cd-menu{position:fixed;z-index:1000;min-width:170px;max-height:44vh;overflow-y:auto;
-  background:#1c1d22;border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:6px;
-  box-shadow:0 14px 44px rgba(0,0,0,.55);display:none}
-.cd-menu.show{display:block}
-.cd-item{padding:10px 12px;border-radius:8px;font-size:13px;color:#d8d6cf;cursor:pointer;display:flex;align-items:center;gap:8px;white-space:nowrap}
-.cd-item:hover{background:rgba(226,184,87,.14)}
-.cd-item.on{color:var(--accent,#e2b857);font-weight:600}
-.cd-item .cd-check{margin-left:auto;font-size:12px;flex-shrink:0}
-body[data-theme="light-gray"] .cd-menu, body[data-theme="mint"] .cd-menu, body[data-theme="light-gray"] .cd-btn, body[data-theme="mint"] .cd-btn{background:#fff;color:#333;border-color:#ddd}
-body[data-theme="light-gray"] .cd-item, body[data-theme="mint"] .cd-item{color:#444}
-</style>
-<script>
-(function(){
-  function enhance(sel){
-    if(sel.dataset.cd) return; sel.dataset.cd = "1";
-    if(sel.multiple) return;
-    const w = sel.getBoundingClientRect().width;
-    sel.classList.add("cd-native");
-    const btn = document.createElement("button");
-    btn.type = "button"; btn.className = "cd-btn";
-    btn.style.width = (w > 40 ? Math.ceil(w) : 0) + "px";
-    if(!w || w <= 40) btn.style.width = "auto";
-    const menu = document.createElement("div"); menu.className = "cd-menu";
-    const syncBtn = () => {
-      const o = sel.options[sel.selectedIndex];
-      btn.innerHTML = '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
-        (o ? o.textContent : "请选择").replace(/</g,"&lt;") + '</span><span class="cd-arrow">▼</span>';
-    };
-    const buildMenu = () => {
-      menu.innerHTML = "";
-      [...sel.options].forEach(o => {
-        const it = document.createElement("div");
-        it.className = "cd-item" + (o.selected ? " on" : "");
-        it.innerHTML = '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
-          o.textContent.replace(/</g,"&lt;") + '</span><span class="cd-check">' + (o.selected ? "✓" : "") + '</span>';
-        it.addEventListener("click", () => {
-          sel.value = o.value;
-          sel.dispatchEvent(new Event("change", {bubbles:true}));
-          close();
-        });
-        menu.appendChild(it);
-      });
-    };
-    const close = () => menu.classList.remove("show");
-    sel.addEventListener("change", () => { syncBtn(); buildMenu(); });
-    new MutationObserver(() => { syncBtn(); buildMenu(); }).observe(sel, {childList:true});
-    btn.addEventListener("click", e => {
-      e.stopPropagation();
-      const wasOpen = menu.classList.contains("show");
-      document.querySelectorAll(".cd-menu.show").forEach(m => m.classList.remove("show"));
-      if(wasOpen) return;
-      buildMenu(); syncBtn();
-      const r = btn.getBoundingClientRect();
-      menu.classList.add("show");
-      const mw = menu.offsetWidth, mh = menu.offsetHeight;
-      let left = Math.min(r.left, window.innerWidth - mw - 10);
-      let top = r.bottom + 6;
-      if(top + mh > window.innerHeight - 10) top = Math.max(10, r.top - mh - 6);
-      menu.style.left = Math.max(10,left) + "px"; menu.style.top = top + "px";
-      menu.style.minWidth = Math.max(r.width, 160) + "px";
-    });
-    menu.addEventListener("click", e => e.stopPropagation());
-    document.addEventListener("click", close);
-    sel.after(btn);
-    document.body.appendChild(menu);
-    syncBtn(); buildMenu();
-  }
-  const init = () => document.querySelectorAll("select").forEach(enhance);
-  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
-  else init();
-})();
-</script>
 </body></html>`;
     blob = new Blob(["\ufeff"+html], {type:"application/msword"});
     name = `文档-${msgStamp()}.doc`;
@@ -3779,16 +3459,56 @@ function resetBgImage(){
 </div>
 <script>
 /* ===== 图片裁剪器 ===== */
-/* ===== 图片裁剪器 v2：固定裁剪框，拖动平移 + 双指捏合缩放（参考系统相册裁剪） ===== */
+/* ===== 图片裁剪：优先 Cropper.js（github.com/fengyuanchen/cropperjs，13k+ star，MIT，
+   微信编辑图片同款交互：整屏图片 + 可拖动/拉伸的裁剪框，支持触屏和旋转）；
+   CDN 加载失败（离线）时自动退回内置裁剪（固定框 + 拖动/捏合缩放） ===== */
 let cropImg=null, cropCtx=null, cropCb=null, cropAspect=1.7778;
 let cropScale=1, cropMin=1, cropOff={x:0,y:0}, cropFrame={x:0,y:0,w:0,h:0};
 let cropDrag=null, cropPinch=null;
+let _cropper=null, _libCropCb=null, _cropperLoading=null;
 
+function loadCropper(){
+  if(window.Cropper) return Promise.resolve();
+  if(_cropperLoading) return _cropperLoading;
+  const css = document.createElement("link"); css.rel = "stylesheet";
+  css.href = "https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.css";
+  document.head.appendChild(css);
+  _cropperLoading = new Promise((res, rej)=>{
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.js";
+    s.onload = res; s.onerror = ()=>{ _cropperLoading = null; rej(new Error("cdn")); };
+    document.head.appendChild(s);
+  });
+  return _cropperLoading;
+}
 function openCrop(src, onDone, aspect){
+  loadCropper()
+    .then(()=>{ startLibCrop(src, onDone, aspect); })
+    .catch(()=>{ startLiteCrop(src, onDone, aspect); });
+}
+function startLibCrop(src, onDone, aspect){
+  _libCropCb = onDone;
+  const el = $("cropImgEl");
+  el.style.display = "block";
+  $("cropCanvas").style.display = "none";
+  $("cropZoomRow").style.display = "none";
+  if(_cropper){ _cropper.destroy(); _cropper = null; }
+  el.src = src;
+  _cropper = new Cropper(el, {
+    aspectRatio: (aspect > 0 ? aspect : NaN),
+    viewMode: 1, dragMode: "move", autoCropArea: 1,
+    background: false, responsive: true, checkOrientation: true
+  });
+  $("cropModal").classList.add("show");
+}
+function startLiteCrop(src, onDone, aspect){
   cropCb=onDone;
   cropAspect=(typeof aspect==="number" && aspect>0) ? aspect : 1.7778;
   const ratioStr=String(cropAspect);
   document.querySelectorAll("[data-crop-ratio]").forEach(b=>b.classList.toggle("on", b.dataset.cropRatio===ratioStr));
+  $("cropImgEl").style.display = "none";
+  $("cropCanvas").style.display = "block";
+  $("cropZoomRow").style.display = "flex";
   const im=new Image();
   im.onload=()=>{
     cropImg=im;
@@ -3836,6 +3556,7 @@ function drawCrop(){
   }
 }
 function setCropRatio(v, btn){
+  if(_cropper){ _cropper.setAspectRatio(v > 0 ? v : NaN); document.querySelectorAll("[data-crop-ratio]").forEach(b=>b.classList.toggle("on", b===btn)); return; }
   cropAspect=v;
   document.querySelectorAll("[data-crop-ratio]").forEach(b=>b.classList.toggle("on", b===btn));
   layoutCrop();
@@ -3891,6 +3612,16 @@ function cropZoom(factor, cx, cy){
 })();
 function closeCrop(ok){
   $("cropModal").classList.remove("show");
+  if(ok && _cropper){
+    const out = _cropper.getCroppedCanvas({ maxWidth:1920, maxHeight:1920, imageSmoothingQuality:"high", fillColor:"#fff" });
+    const cb = _libCropCb;
+    _cropper.destroy(); _cropper = null;
+    $("cropImgEl").style.display = "none";
+    $("cropCanvas").style.display = "block";
+    $("cropZoomRow").style.display = "flex";
+    if(cb && out) cb(out);
+    return;
+  }
   if(ok && cropImg && cropCb){
     const f=cropFrame;
     const sx=(f.x-(cropOff.x-cropImg.width*cropScale/2))/cropScale;
