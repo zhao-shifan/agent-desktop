@@ -3443,8 +3443,9 @@ function resetBgImage(){
       <button class="btn-ghost" style="padding:5px 10px;font-size:12px" data-crop-ratio="1" onclick="setCropRatio(1,this)">1:1 方形</button>
     </div>
     <div style="position:relative;overflow:auto;flex:1;background:#111;border-radius:8px;min-height:200px">
+      <img id="cropImgEl" style="display:none;max-width:100%;max-height:58vh;margin:0 auto">
       <canvas id="cropCanvas" style="display:block;max-width:100%;border-radius:10px;touch-action:none"></canvas>
-<div style="display:flex;gap:8px;align-items:center;justify-content:center;margin-top:8px">
+<div id="cropZoomRow" style="display:flex;gap:8px;align-items:center;justify-content:center;margin-top:8px">
   <button class="btn-ghost" style="padding:6px 14px;font-size:14px" onclick="cropZoom(0.8)">－</button>
   <span style="font-size:11px;color:var(--faint)">拖动图片调整位置 · 双指捏合缩放</span>
   <button class="btn-ghost" style="padding:6px 14px;font-size:14px" onclick="cropZoom(1.25)">＋</button>
@@ -3467,18 +3468,37 @@ let cropScale=1, cropMin=1, cropOff={x:0,y:0}, cropFrame={x:0,y:0,w:0,h:0};
 let cropDrag=null, cropPinch=null;
 let _cropper=null, _libCropCb=null, _cropperLoading=null;
 
+/* 多 CDN 源轮试 + 单源 4 秒超时：国内 jsdelivr 经常被墙，任一源失败/超时就试下一个，全挂则退回内置裁剪 */
+function _loadScriptOnce(src, timeoutMs){
+  return new Promise((res, rej)=>{
+    const s = document.createElement("script");
+    const timer = setTimeout(()=>{ s.remove(); rej(new Error("timeout")); }, timeoutMs || 4000);
+    s.src = src;
+    s.onload = ()=>{ clearTimeout(timer); res(); };
+    s.onerror = ()=>{ clearTimeout(timer); s.remove(); rej(new Error("cdn")); };
+    document.head.appendChild(s);
+  });
+}
 function loadCropper(){
   if(window.Cropper) return Promise.resolve();
   if(_cropperLoading) return _cropperLoading;
   const css = document.createElement("link"); css.rel = "stylesheet";
-  css.href = "https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.css";
+  css.href = "https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css";
   document.head.appendChild(css);
-  _cropperLoading = new Promise((res, rej)=>{
-    const s = document.createElement("script");
-    s.src = "https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.js";
-    s.onload = res; s.onerror = ()=>{ _cropperLoading = null; rej(new Error("cdn")); };
-    document.head.appendChild(s);
-  });
+  _cropperLoading = (async ()=>{
+    const sources = [
+      "https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js",
+      "https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.js",
+      "https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.js",
+      "https://fastly.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.js"
+    ];
+    for(const src of sources){
+      if(window.Cropper) return;
+      try{ await _loadScriptOnce(src, 4000); if(window.Cropper) return; }catch(e){}
+    }
+    _cropperLoading = null;
+    throw new Error("all cdn failed");
+  })();
   return _cropperLoading;
 }
 function openCrop(src, onDone, aspect){
