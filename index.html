@@ -707,13 +707,7 @@ body:has(.sidebar.open) #sbScrim{display:block}
   .round-btn{width:32px;height:32px}
   .btn-send{width:34px;height:34px;flex:0 0 auto}
 
-  /* 弹窗：DeepSeek 手机端式底部抽屉——贴底滑出，高度留白，不整屏糊脸 */
-  .overlay{padding:0}
-  .overlay.show{align-items:flex-end}
-  .modal{width:100%!important;max-width:100%!important;max-height:82vh;height:auto;
-         border-radius:18px 18px 0 0;padding:0 16px 16px;animation:sheetUp .25s ease}
-  .modal-fixed{margin:0 -16px;padding:16px 16px 0}
-  @keyframes sheetUp{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
+  /* 弹窗：手机端沿用桌面那套居中断层，只用 20px 留边；不再贴底抽屉 / 满屏 */
   .modal h3{font-size:17px}
   .modal .sub{font-size:12px;margin-bottom:16px}
   .modal img,.modal table,.modal pre{max-width:100%}
