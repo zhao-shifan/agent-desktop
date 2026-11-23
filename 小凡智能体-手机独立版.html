@@ -709,9 +709,9 @@ body:has(.sidebar.open) .menu-toggle{display:none}
   .round-btn{width:32px;height:32px}
   .btn-send{width:34px;height:34px;flex:0 0 auto}
 
-  /* 弹窗：手机端与桌面一致，保持屏幕居中（不用贴底抽屉式） */
-  .overlay{padding:0}
-  .modal{width:100%!important;max-width:100%!important;max-height:82vh;height:auto;
+  /* 弹窗：手机端与桌面一致，保持屏幕居中（不用贴底抽屉式）；宽度留边不糊满屏 */
+  .overlay{padding:14px}
+  .modal{width:min(430px,100%)!important;max-height:84vh;height:auto;
          border-radius:18px;padding:0 16px 16px}
   .modal-fixed{margin:0 -16px;padding:16px 16px 0}
   .modal h3{font-size:17px}
