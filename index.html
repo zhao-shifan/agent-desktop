@@ -996,7 +996,8 @@ body:has(.sidebar.open) #sbScrim{display:block}
     <div class="field" style="margin-top:12px">
       <label>背景显示方式</label>
       <select id="bgMode" class="prov-select" style="font-size:12.5px" onchange="localStorage.setItem('aria.bgMode',this.value);applyCustomBg()">
-        <option value="cover">铺满裁剪（默认）</option>
+        <option value="smart">智能适配（默认·自动）</option>
+        <option value="cover">铺满裁剪（忽略比例）</option>
         <option value="contain">居中完整显示（模糊衬底）</option>
       </select>
     </div>
@@ -2101,7 +2102,8 @@ function appendMsg(role, text, animate=true){
     <div style="min-width:0;max-width:88%">
       <div class="bubble">${imgsHtml}<div class="content">${mdRender(text)}</div></div>
       <div class="msg-actions">
-        ${role!=="user" ? `<span class="exp-chip" onclick="exportDoc(${idx})" title="导出 Word 文档">📄 Word</span>
+        ${role!=="user" ? `<span class="exp-chip" onclick="previewDoc(${idx})" title="预览文档效果">👁 预览</span>` +
+                    `<span class="exp-chip" onclick="exportDoc(${idx})" title="导出 Word 文档">📄 Word</span>
         <span class="exp-chip" onclick="exportMd(${idx})" title="导出 Markdown">📝 MD</span>
         <span class="exp-chip" onclick="exportTxt(${idx})" title="导出纯文本">📃 TXT</span>
         <span class="exp-chip" onclick="exportXlsx(${idx})" title="导出表格为 Excel">📊 Excel</span>
@@ -2356,6 +2358,15 @@ function rawMsgText(idx){
   const m = history[idx];
   return typeof m.content==="string" ? m.content : m.content?.[0]?.text || "";
 }
+/* 文档预览：先看排版效果再决定下载（参考豆包的导出前预览交互） */
+function previewDoc(idx){
+  const m = history[idx];
+  const t = typeof m.content==="string" ? m.content : m.content[0]?.text || "";
+  $("docPrevBody").innerHTML = mdRender(t);
+  $("docPrevDownload").onclick = ()=> exportDoc(idx);
+  $("docPreview").classList.add("show");
+}
+
 async function exportDoc(idx){
   const m = history[idx];
   const t = typeof m.content==="string" ? m.content : m.content[0]?.text || "";
@@ -3405,24 +3416,41 @@ function applyCustomBg(){
   const img = localStorage.getItem("aria.bgImage");
   const el = $("customBg");
   if(!img){ el.style.display = "none"; return; }
-  const mode = localStorage.getItem("aria.bgMode") || "cover";   // cover 铺满裁剪 / contain 居中完整显示
+  const mode = localStorage.getItem("aria.bgMode") || "smart";   // smart 智能适配 / cover 铺满裁剪 / contain 居中完整
   const blur = el.querySelector(".cb-blur"), im = el.querySelector(".cb-img");
   el.style.display = "block";
   blur.style.backgroundImage = `url(${img})`;
   im.src = img;
-  if(mode === "contain"){
-    // 居中完整显示：背景隐去，底下垫同图模糊衬底，主图按比例完整展示
-    el.style.backgroundImage = "none";
-    blur.style.display = "block";
-    im.style.display = "block";
-  }else{
-    el.style.backgroundImage = `url(${img})`;
-    el.style.backgroundSize = "cover";
-    el.style.backgroundPosition = "center";
-    blur.style.display = "none";
-    im.style.display = "none";
-  }
+  const fit = ()=>{
+    let m = mode;
+    if(m === "smart"){
+      // 智能适配：图片比例和屏幕接近(差8%内) → 直接铺满无缝；差异大 → 模糊衬底+完整居中（WhatsApp Web 同款方案）
+      const screenAr = window.innerWidth / window.innerHeight;
+      const imgAr = (im.naturalWidth && im.naturalHeight) ? im.naturalWidth/im.naturalHeight : screenAr;
+      m = (Math.abs(imgAr - screenAr) / screenAr < 0.08) ? "cover" : "contain";
+    }
+    if(m === "contain"){
+      // 居中完整显示：底下垫同图放大模糊衬底，主图按比例完整展示
+      el.style.backgroundImage = "none";
+      blur.style.display = "block";
+      im.style.display = "block";
+      im.style.objectFit = "contain";
+    }else{
+      el.style.backgroundImage = `url(${img})`;
+      el.style.backgroundSize = "cover";
+      el.style.backgroundPosition = "center";
+      blur.style.display = "none";
+      im.style.display = "none";
+    }
+  };
+  if(im.complete && im.naturalWidth) fit(); else im.onload = fit;
 }
+/* 窗口尺寸变化时智能模式重新评估适配方式 */
+let _bgFitTimer = null;
+window.addEventListener("resize", ()=>{
+  clearTimeout(_bgFitTimer);
+  _bgFitTimer = setTimeout(()=>{ if(localStorage.getItem("aria.bgImage")) applyCustomBg(); }, 200);
+});
 /* 打开外观面板时同步下拉框与当前生效值 */
 function pickBgImage(){ $("bgFileInput").click(); }
 function resetBgImage(){
@@ -3431,6 +3459,20 @@ function resetBgImage(){
   setStatus("已恢复默认主题背景");
 }
 </script>
+<!-- 文档预览 -->
+<div class="overlay" id="docPreview">
+  <div class="modal" style="width:min(680px,100%);padding-top:22px">
+    <div class="modal-head">
+      <h3>📄 文档预览</h3>
+      <button class="x-close" onclick="$('docPreview').classList.remove('show')">✕</button>
+    </div>
+    <div id="docPrevBody" style="flex:1;overflow-y:auto;border:1px solid var(--line2);border-radius:12px;padding:22px 26px;background:rgba(255,255,255,.97);color:#222;font-size:14px;line-height:1.85"></div>
+    <div class="modal-actions" style="margin-top:12px">
+      <button class="btn-ghost" style="flex:1" onclick="$('docPreview').classList.remove('show')">关闭</button>
+      <button class="btn-primary" id="docPrevDownload" style="flex:2">⬇ 下载 Word 文档</button>
+    </div>
+  </div>
+</div>
 <!-- 通用图片裁剪弹框：拖选区域，支持锁定比例 -->
 <div class="overlay" id="cropModal">
   <div class="panel" style="width:min(92vw,560px);max-height:88vh;display:flex;flex-direction:column">
