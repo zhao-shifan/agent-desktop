@@ -898,11 +898,11 @@ body:has(.sidebar.open) #sbScrim{display:block}
       <h3>手机扫码使用</h3>
       <button class="x-close" onclick="$('qrOverlay').classList.remove('show')">✕</button>
     </div>
-    <p class="sub">扫一扫打开 <b>GitHub Pages 在线手机版</b>——不需要电脑开机，任何时候都能用。<br>打开后建议在浏览器菜单里「添加到主屏幕」，即可像 App 一样全屏使用。</p>
-    <div id="qrBox" style="display:flex;justify-content:center;padding:10px 0 6px"></div>
-    <p style="font-size:12px;color:var(--dim);margin:10px 0 4px;word-break:break-all" id="qrUrl"></p>
+    <p class="sub">两个码按情况选：<b>①同一 WiFi</b> 最稳，手机走电脑代理，智谱这类不开放跨域的模型也能用（电脑要开着）；<b>②任意网络</b> 不用电脑，但只能直连开放跨域的模型（DeepSeek / OpenRouter）。</p>
+    <div id="qrBox" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0 4px"></div>
+    <p style="font-size:12px;color:var(--dim);margin:6px 0 4px;word-break:break-all" id="qrUrl"></p>
     <div class="modal-actions">
-      <button class="btn-ghost" onclick="copyLan()">复制地址</button>
+      <button class="btn-ghost" onclick="copyLan()">复制在线地址</button>
       <button class="btn-primary" onclick="$('qrOverlay').classList.remove('show')">完成</button>
     </div>
   </div>
@@ -4154,18 +4154,31 @@ if(!localStorage.getItem("aria.onboarded")){
 const PAGES_MOBILE_URL = "https://zhao-shifan.github.io/agent-desktop/mobile.html";
 async function openQR(){
   try{
-    $("qrUrl").textContent = PAGES_MOBILE_URL;
     if(typeof qrcode === "undefined"){
       await new Promise((res, rej)=>{ const s=document.createElement("script"); s.src="./qrcode.js"; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
     }
-    const qr = qrcode(0, "M");
-    qr.addData(PAGES_MOBILE_URL); qr.make();
-    $("qrBox").innerHTML = `<img src="${qr.createDataURL(6, 8)}" alt="QR" style="width:210px;image-rendering:pixelated;border-radius:12px;background:#fff;padding:10px">`;
+    const mkQR = (u, px) => { const q = qrcode(0, "M"); q.addData(u); q.make(); return `<img src="${q.createDataURL(6, 8)}" alt="QR" style="width:${px||190}px;image-rendering:pixelated;border-radius:12px;background:#fff;padding:9px">`; };
+    // 局域网地址只有在「由本地服务打开」时才有；file:// 打开时取不到，只给在线版
+    let lanUrl = "";
+    try{ const r = await fetch("/api/lan"); const d = await r.json(); if(d && d.ok && d.url) lanUrl = d.url; }catch(e){}
+    let html = "";
+    if(lanUrl){
+      html += `<div style="width:100%;text-align:left;font-size:12.5px;color:var(--txt);margin-bottom:6px"><b>① 同一 WiFi</b> · 走电脑代理，最稳</div>`
+           +  mkQR(lanUrl)
+           + `<div style="font-size:11px;color:var(--dim);margin:4px 0 14px;word-break:break-all">${lanUrl}</div>`
+           + `<div style="width:100%;text-align:left;font-size:12.5px;color:var(--txt);margin-bottom:6px"><b>② 任意网络</b> · 在线版，不用电脑</div>`;
+    } else {
+      html += `<div style="width:100%;text-align:left;font-size:12.5px;color:var(--txt);margin-bottom:6px"><b>在线手机版</b> · 不用电脑</div>`;
+    }
+    html += mkQR(PAGES_MOBILE_URL);
+    html += `<div style="font-size:11px;color:var(--dim);margin-top:4px;word-break:break-all">${PAGES_MOBILE_URL}</div>`;
+    $("qrBox").innerHTML = html;
+    $("qrUrl").textContent = "提示：在线版是浏览器直连模型，智谱/GLM 不返回跨域头会报 Failed to fetch；想用 GLM 请扫①（同一 WiFi）。";
     $("qrOverlay").classList.add("show");
   }catch(e){
     $("qrBox").innerHTML = "";
     $("qrOverlay").classList.add("show");
-    $("qrUrl").textContent = PAGES_MOBILE_URL + "（生成失败，手动在手机浏览器打开此地址）";
+    $("qrUrl").textContent = PAGES_MOBILE_URL + "（二维码生成失败，手动在手机浏览器打开此地址）";
     setStatus("二维码生成失败："+e.message, true);
   }
 }
