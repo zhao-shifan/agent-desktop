@@ -3617,8 +3617,7 @@ async function refreshWallCount(){
       if(Array.isArray(d.cards) && d.cards.length) window.WALL_CARD_IDS = d.cards;
     }catch(e){}
   }
-    const t = $("wallCountTxt"); if(t) t.textContent = WALL_COUNT;
-  }catch(e){}
+  const t = $("wallCountTxt"); if(t) t.textContent = WALL_COUNT;
 }
 function switchThemeTab(tab, btn){
   document.querySelectorAll(".tab-btn").forEach(b=>b.classList.toggle("on", b===btn));
@@ -3884,10 +3883,11 @@ function applyStandaloneUI(){
   const note=$("composerNote"); if(note) note.textContent="支持文档 / 图片 · 独立模式";
 }
 if(STANDALONE) applyStandaloneUI();
-/* PWA：注册 Service Worker（只对 http/https 生效，file:// 打开时跳过） */
+/* PWA：手机独立版不注册 Service Worker
+   （file:// 打开注册不了；Pages 托管时离线意义不大，且避免与桌面 PWA 的 sw.js 冲突）
 if("serviceWorker" in navigator && location.protocol.startsWith("http")){
-  /* 手机独立版：本地 file:// 打开，不注册 Service Worker */ });
-}
+  navigator.serviceWorker.register("./sw.js").catch(()=>{});
+} */
 /* 开箱即用：无配置时默认接入免费模型（Key 来自本机私有配置，不会上传） */
 if(!cfg || !cfg.apiKey){
   if(window.LOCAL_DEFAULT_KEY && !STANDALONE){
