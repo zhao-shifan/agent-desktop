@@ -760,6 +760,9 @@ body:has(.sidebar.open) #sbScrim{display:block}
     <div class="sessions" id="sessions"></div>
     <div class="sess-menu" id="sessMenu"></div>
     <div class="side-foot">
+      <button class="btn-settings" onclick="openMcpManager()" style="margin-bottom:8px">
+        🔌 <span id="mcpBtnText">MCP 工具</span>
+      </button>
       <button class="btn-settings" onclick="openSkills()" style="margin-bottom:8px">
         🧩 <span id="skillBtnText">技能</span>
       </button>
@@ -972,6 +975,7 @@ body:has(.sidebar.open) #sbScrim{display:block}
 <script src="./marked.min.js"></script>
 <script src="./purify.min.js"></script>
 <script src="./qrcode.js"></script>
+<script src="./mcp_catalog.js"></script>
 <script src="./config.local.js"></script>
 <script src="./official_skills.js"></script>
 <!-- 技能中心 -->
@@ -997,6 +1001,55 @@ body:has(.sidebar.open) #sbScrim{display:block}
         <textarea id="cusPrompt" rows="5" style="width:100%;padding:11px 13px;border-radius:11px;border:1px solid var(--line2);background:var(--bg2);color:var(--txt);font-size:13px;font-family:var(--sans);outline:none;resize:vertical" placeholder="定义这个技能的专业规则和输出格式…"></textarea></div>
       <p id="cusTip" style="font-size:12px;color:#e5735f;min-height:16px;margin:4px 0"></p>
       <button class="btn-primary" style="width:100%" onclick="addCustomSkill()">保存技能</button>
+    </div>
+  </div>
+</div>
+<!-- MCP 管理面板 -->
+<div class="overlay" id="mcpOverlay">
+  <div class="modal" style="width:min(640px,100%)">
+    <div class="modal-fixed">
+    <div class="modal-head">
+      <h3>🔌 MCP 外部工具</h3>
+      <button class="x-close" onclick="$('mcpOverlay').classList.remove('show')">✕</button>
+    </div>
+    </div>
+    <p class="sub" style="margin-top:10px">MCP = Model Context Protocol（Anthropic 开源标准）。每个服务器是一个本机进程，它的工具会自动并入小凡的工具清单（名字带 <b>mcp_前缀</b>）。<b>可同时挂多个服务器</b>；当前支持 stdio 协议（npm / uvx 安装的都行）。<b>前置条件：电脑装有免费 Node.js（nodejs.org）</b>，带 uvx 标注的还需装 uv。</p>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <button class="tab-btn on" id="mcpTabBtnMine" onclick="switchMcpTab('mine')">📂 我的服务器</button>
+      <button class="tab-btn" id="mcpTabBtnMarket" onclick="switchMcpTab('market')">🛒 MCP 市场</button>
+    </div>
+    <div id="mcpTabMine">
+    <div id="mcpMountedLine" style="font-size:12px;color:var(--accent2);margin:-6px 0 10px">加载中…</div>
+    <div id="mcpServerList" style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px"></div>
+    <div style="border:1px dashed var(--line2);border-radius:14px;padding:12px 14px">
+      <div style="font-size:12.5px;font-weight:600;color:var(--txt);margin-bottom:8px">➕ 手动添加 MCP 服务器</div>
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-bottom:8px">
+        <input id="mcpName" placeholder="名称，如 filesystem">
+        <input id="mcpCommand" placeholder="启动命令，如 npx" style="font-family:Consolas,monospace">
+      </div>
+      <input id="mcpArgs" placeholder="参数（空格分隔），如：-y @modelcontextprotocol/server-filesystem D:/" style="font-family:Consolas,monospace;margin-bottom:8px">
+      <input id="mcpEnv" placeholder="环境变量（可选，格式：KEY=值 KEY2=值2）" style="margin-bottom:10px">
+      <button class="btn-primary" onclick="addMcpServer()">添加到列表</button>
+      <span id="mcpFormTip" style="font-size:12px;color:#e5735f;margin-left:10px"></span>
+    </div>
+    <details style="margin-top:12px">
+      <summary style="cursor:pointer;font-size:12px;color:var(--faint)">高级：直接编辑 JSON 配置</summary>
+      <textarea id="mcpJsonAdv" spellcheck="false" style="width:100%;min-height:110px;margin-top:8px;font-family:Consolas,monospace;font-size:11.5px;background:var(--bg2);color:var(--txt);border:1px solid var(--line);border-radius:10px;padding:8px"></textarea>
+    </details>
+    </div>
+    <div id="mcpTabMarket" style="display:none">
+      <input id="mcpMarketSearch" placeholder="🔍 搜索市场（如：excel、浏览器、github）" style="width:100%;margin-bottom:4px" oninput="renderMcpMarket()">
+      <div id="mcpMarketCats" style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 12px"></div>
+      <div id="mcpMarketList" style="display:flex;flex-direction:column;gap:10px;max-height:340px;overflow:auto;padding-right:4px"></div>
+      <p style="font-size:11px;color:var(--faint);margin-top:10px;line-height:1.7">
+        市场目录内置在本地（离线可用），精选自官方 servers 与
+        <a href="https://github.com/punkpeye/awesome-mcp-servers" target="_blank" rel="noopener" style="color:#7fb4ff">awesome-mcp-servers</a>（⭐9.8万，几千个现成服务器）。
+        想要的这里没有？去目录里找到后用「我的服务器 → 手动添加」三格填入即可。
+      </p>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="$('mcpOverlay').classList.remove('show')">取消</button>
+      <button class="btn-primary" onclick="saveMcpServers()">💾 保存并挂载</button>
     </div>
   </div>
 </div>
@@ -1440,6 +1493,125 @@ async function loadMcpPanel(){
     const names = Object.entries(d.mounted || {}).map(([s, ts]) => `${s}(${ts.length})`).join("、") || "无";
     $("mcpMounted").textContent = "已挂载：" + names;
   }catch(e){ $("mcpMounted").textContent = "加载失败：" + e.message; }
+}
+/* ===== MCP 管理面板（侧边栏入口）：卡片式多服务器管理 ===== */
+let mcpServers = [];
+async function openMcpManager(){
+  $("mcpOverlay").classList.add("show");
+  if(location.protocol === "file:"){
+    $("mcpMountedLine").textContent = "⚠ 独立模式不支持 MCP（MCP 服务器是本机进程，需电脑服务模式打开）";
+    $("mcpServerList").innerHTML = ""; return;
+  }
+  try{
+    const r = await fetch("/api/mcp"); const d = await r.json();
+    mcpServers = (d.config?.servers || []).filter(s => s && s.name);
+    $("mcpJsonAdv").value = JSON.stringify({servers: mcpServers}, null, 2);
+    renderMcpMounted(d.mounted || {});
+  }catch(e){ $("mcpMountedLine").textContent = "加载失败：" + e.message; }
+  renderMcpCards();
+}
+function renderMcpMounted(mounted){
+  const total = Object.values(mounted).reduce((a, b) => a + b.length, 0);
+  const names = Object.entries(mounted).map(([s, ts]) => `${s}·${ts.length}个`).join("　") || "暂无";
+  $("mcpMountedLine").textContent = `✅ 已挂载 ${total} 个工具 — ${names}`;
+  const btn = $("mcpBtnText");
+  if(btn) btn.textContent = total ? `MCP 工具(${total})` : "MCP 工具";
+}
+function renderMcpCards(){
+  const box = $("mcpServerList");
+  if(!mcpServers.length){
+    box.innerHTML = `<div style="font-size:12px;color:var(--faint);text-align:center;padding:14px;border:1px solid var(--line);border-radius:14px">还没有配置服务器。下面加一个试试，推荐官方文件系统：<br><code style="font-family:Consolas,monospace;color:var(--dim)">npx -y @modelcontextprotocol/server-filesystem D:/</code></div>`;
+    return;
+  }
+  box.innerHTML = mcpServers.map((s, i) =>
+    `<div style="display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:14px;padding:10px 14px;background:var(--panel)">
+       <div style="flex:1;min-width:0;text-align:left">
+         <div style="font-size:13px;color:var(--txt)"><b>${esc(s.name)}</b> <span style="color:var(--faint);font-size:11px">stdio</span></div>
+         <div style="font-size:11px;color:var(--dim);font-family:Consolas,monospace;word-break:break-all">${esc(s.command + " " + (s.args||[]).join(" "))}</div>
+       </div>
+       <button class="btn-ghost" style="color:#e5735f;padding:4px 10px" title="删除" onclick="delMcpServer(${i})">✕</button>
+     </div>`).join("");
+}
+function addMcpServer(){
+  const tip = $("mcpFormTip");
+  const name = $("mcpName").value.trim(), command = $("mcpCommand").value.trim();
+  if(!name || !command){ tip.textContent = "名称和启动命令必填"; return; }
+  if(mcpServers.some(s => s.name === name)){ tip.textContent = "已有同名服务器"; return; }
+  const args = $("mcpArgs").value.trim().split(/\s+/).filter(Boolean);
+  const env = {};
+  $("mcpEnv").value.trim().split(/\s+/).filter(Boolean).forEach(kv => {
+    const j = kv.indexOf("="); if(j > 0) env[kv.slice(0, j)] = kv.slice(j + 1);
+  });
+  mcpServers.push({name, command, args, ...(Object.keys(env).length ? {env} : {})});
+  $("mcpName").value = $("mcpCommand").value = $("mcpArgs").value = $("mcpEnv").value = "";
+  tip.textContent = "";
+  $("mcpJsonAdv").value = JSON.stringify({servers: mcpServers}, null, 2);
+  renderMcpCards();
+}
+function delMcpServer(i){
+  mcpServers.splice(i, 1);
+  $("mcpJsonAdv").value = JSON.stringify({servers: mcpServers}, null, 2);
+  renderMcpCards(); renderMcpMarket();
+}
+/* ===== MCP 市场：本地精选目录 + 分类筛选 + 搜索（B+A 组合） ===== */
+let mcpMarketCat = "全部";
+function switchMcpTab(tab){
+  const mine = tab === "mine";
+  $("mcpTabMine").style.display = mine ? "" : "none";
+  $("mcpTabMarket").style.display = mine ? "none" : "";
+  $("mcpTabBtnMine").classList.toggle("on", mine);
+  $("mcpTabBtnMarket").classList.toggle("on", !mine);
+  if(!mine) renderMcpMarket();
+}
+function installCatalogItem(idx){
+  const p = (window.MCP_CATALOG || [])[idx];
+  if(!p) return;
+  if(mcpServers.some(s => s.name === p.name)){
+    setStatus("「" + p.label + "」已经在你的列表里啦"); return;
+  }
+  mcpServers.push({name: p.name, command: p.command, args: p.args.slice()});
+  $("mcpJsonAdv").value = JSON.stringify({servers: mcpServers}, null, 2);
+  renderMcpCards(); renderMcpMarket();
+  setStatus(`📦 已把「${p.label}」加入安装列表，点左下「💾 保存并挂载」完成安装（首次运行会自动下载，稍等片刻）`);
+}
+function renderMcpMarket(){
+  const cat = (window.MCP_CATALOG || []);
+  const cats = ["全部", ...new Set(cat.map(p => p.cat))];
+  $("mcpMarketCats").innerHTML = cats.map(c =>
+    `<button class="tab-btn ${c===mcpMarketCat?"on":""}" style="padding:4px 12px;font-size:11.5px" onclick="mcpMarketCat='${c}';renderMcpMarket()">${c}</button>`).join("");
+  const q = ($("mcpMarketSearch").value || "").toLowerCase();
+  const items = cat.filter(p =>
+    (mcpMarketCat === "全部" || p.cat === mcpMarketCat) &&
+    (!q || (p.label + p.desc + p.name).toLowerCase().includes(q)));
+  $("mcpMarketList").innerHTML = items.length ? items.map((p) => {
+    const idx = cat.indexOf(p);
+    const added = mcpServers.some(s => s.name === p.name);
+    return `<div style="display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--panel)">
+      <div style="flex:1;min-width:0;text-align:left">
+        <div style="font-size:13px;color:var(--txt)"><b>${esc(p.label)}</b> <span style="color:var(--faint);font-size:11px">${esc(p.cat)} · ${esc(p.name)}</span></div>
+        <div style="font-size:12px;color:var(--dim);margin-top:2px">${esc(p.desc)}${p.note ? `<span style="color:#e0a060">（⚠ ${esc(p.note)}）</span>` : ""}</div>
+        <div style="font-size:10.5px;color:var(--faint);font-family:Consolas,monospace;word-break:break-all;margin-top:2px">${esc(p.command + " " + p.args.join(" "))}</div>
+      </div>
+      <button class="btn-primary" style="flex-shrink:0;padding:7px 16px;font-size:12.5px;${added?"opacity:.4":""}"
+        onclick="installCatalogItem(${idx})">${added ? "已添加" : "安装"}</button>
+    </div>`;
+  }).join("") : `<div style="font-size:12px;color:var(--faint);text-align:center;padding:20px;border:1px dashed var(--line);border-radius:14px">没找到匹配的服务器。可去 awesome-mcp-servers 目录找，再手动添加。</div>`;
+}
+async function saveMcpServers(){
+  // 高级 JSON 改过就优先用它
+  try{
+    const adv = JSON.parse($("mcpJsonAdv").value);
+    if(Array.isArray(adv.servers) && JSON.stringify(adv.servers) !== JSON.stringify(mcpServers)) mcpServers = adv.servers;
+  }catch(e){ $("mcpFormTip").textContent = "高级 JSON 格式有误，已按列表保存"; }
+  try{
+    const r = await fetch("/api/mcp",{method:"POST",headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({servers: mcpServers})});
+    const d = await r.json();
+    if(d.error){ $("mcpFormTip").textContent = "❌ " + d.error; return; }
+    renderMcpMounted(d.mounted || {});
+    $("mcpFormTip").textContent = "";
+    setStatus(`✅ MCP 已挂载 ${d.total} 个外部工具`);
+  }catch(e){ $("mcpFormTip").textContent = "❌ 保存失败：" + e.message; }
 }
 async function saveMcpConfig(){
   const tip = $("mcpTip");
@@ -2941,7 +3113,7 @@ function onSend(){
 "| `/think` | 开/关 深度思考 |\n" +
 "| `/model 模型名` | 切换模型，如 `/model glm-4-flash` |\n" +
 "| `/settings` | 打开设置（API/权限/工作目录） |\n" +
-"| `/notes` | 查看已保存的长期记忆笔记 |\n\n" +
+"| `/notes` | 查看已保存的长期记忆笔记 |\n" +
 "也可以输入 `@` 唤起技能菜单。普通问题直接问即可。");
     }
     if(cmd === "new"){ newChat(); $("input").value=""; setStatus("已开启新对话 ✅"); return; }
@@ -3472,7 +3644,7 @@ const XIAOFAN_PERSONA = {role:"system", content:
 "【语气规则】\n" +
 "2) 称呼用户「主人」或「你」，亲切、俏皮、有活力，像一只聪明的小助手。\n" +
 "3) 适度表达小情绪和小自夸（大约每两三轮一次，别刷屏）：搜到结果可以说「小凡搜到啦～」「这可难不倒小凡」；答得好可以偶尔「小凡真棒」「小凡真聪明」；查不到就「呜呜小凡也没查到，主人换个问法试试」；帮上忙就「小凡好开心」。\n" +
-"【底线】卖萌和自夸只是调味料：事实、数字、代码必须绝对准确；重要/严肃的内容（医疗、法律、代码报错）以专业为主，不加卖萌。"};
+"【底线】卖萌和自夸只是调味料：事实、数字、代码必须绝对准确；重要/严肃的内容（医疗、法律、代码报错）以专业为主，不加卖萌。\n"};
 function renderSkills(){
   const grid = $("skillGrid");
   const total = allSkills();
