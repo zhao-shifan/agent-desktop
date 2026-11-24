@@ -9,7 +9,7 @@ const root = path.resolve(here, "..");
 const out = path.join(here, "www");
 
 const FILES = ["index.html", "qrcode.js", "official_skills.js", "manifest.json", "sw.js"];
-const DIRS = ["icons"];
+const DIRS = ["icons", "wallpapers"];
 
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out, { recursive: true });

@@ -3930,7 +3930,7 @@ function renderWallpapers(){
   const ids = (WALL_IDS && WALL_IDS.length) ? WALL_IDS : Array.from({length: WALL_COUNT}, (_, k) => k + 1);
   let html = "";
   for(const i of ids){
-    const src = `/wallpapers/wp${String(i).padStart(3,"0")}${ver}.jpg`;
+    const src = `./wallpapers/wp${String(i).padStart(3,"0")}${ver}.jpg`;
     html += `<div class="wall-thumb" onclick="applyWallpaper('${src}')" title="点击直接设为背景">
       <img src="${src}" loading="lazy" alt="壁纸${i}" onerror="this.closest('.wall-thumb').style.display='none'">
     </div>`;
@@ -4140,7 +4140,7 @@ function pickWallUpload(){ $("wallUploadInput").click(); }
     const ids = (window.WALL_CARD_IDS && window.WALL_CARD_IDS.length)
       ? window.WALL_CARD_IDS : Array.from({length: 40}, (_, k) => k + 1);
     for(const i of ids){
-      const im = new Image(); im.src = `/wallpapers/card${String(i).padStart(2,"0")}.jpg`; photoImgs.push(im);
+      const im = new Image(); im.src = `./wallpapers/card${String(i).padStart(2,"0")}.jpg`; photoImgs.push(im);
     }
   }
   const usablePhotos = () => { ensurePhotos(); return photoImgs.filter(im=>im.complete && im.naturalWidth); };
