@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """小凡智能体 · 工具层（function calling）
 
 模型只决定「要不要用工具、用哪个、传什么参数」；真正干活的是这里：
@@ -15,13 +15,17 @@ import urllib.parse
 import urllib.request
 import fnmatch
 import concurrent.futures
+import threading
+import socket
+import ipaddress
+import time
 
 MAX_CHARS = 12000
 MAX_ROUNDS = 4          # 一次提问里最多来回几轮工具调用
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 
-# 部分精简版 Python 没带根证书，优先用 certifi；没有 certifi 时退回系统默认，
-# 仍失败再降级为不校验（保持"先验证、后降级"的顺序）
+# 部分精简版 Python 没带根证书，优先用 certifi；没有 certifi 时退回系统默认。
+# 不再静默降级为"不校验证书"——那等于给中间人攻击开门，让证书错误直接暴露
 try:
     import ssl
     try:
@@ -29,11 +33,9 @@ try:
         _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
     except Exception:
         _SSL_CTX = ssl.create_default_context()
-    _SSL_FALLBACK = ssl._create_unverified_context()
 except Exception:
     ssl = None
     _SSL_CTX = None
-    _SSL_FALLBACK = None
 
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
@@ -45,15 +47,13 @@ def _http(url, data=None, headers=None, timeout=25):
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"}
     hdrs.update(headers or {})
     req = urllib.request.Request(url, data=data, headers=hdrs)
+    kw = {"context": _SSL_CTX} if _SSL_CTX is not None else {}
     try:
-        kw = {"context": _SSL_CTX} if _SSL_CTX is not None else {}
         with urllib.request.urlopen(req, timeout=timeout, **kw) as r:
-            raw, ctype = r.read(), r.headers.get("Content-Type", "")
-    except Exception:
-        if _SSL_FALLBACK is None:
-            raise
-        with urllib.request.urlopen(req, timeout=timeout, context=_SSL_FALLBACK) as r:
-            raw, ctype = r.read(), r.headers.get("Content-Type", "")
+            # 限制单次最多读 5MB，防止恶意页面超大响应占内存
+            raw, ctype = r.read(5 * 1024 * 1024), r.headers.get("Content-Type", "")
+    except Exception as e:
+        raise
     m = re.search(r"charset=([\w-]+)", ctype, re.I)
     charset = m.group(1) if m else "utf-8"
     try:
@@ -158,7 +158,9 @@ def _multi_engine_search(query, count):
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(_SEARCH_SOURCES)) as ex:
         futures = {ex.submit(_http, url % q, None, None, 15): (name, parser)
                    for name, url, parser in _SEARCH_SOURCES}
-        for fut in concurrent.futures.as_completed(futures, timeout=20):
+        # 用 wait 而不是 as_completed：超时只放弃未完成的源，已完成的结果照常收集
+        done, _ = concurrent.futures.wait(futures, timeout=20)
+        for fut in done:
             name, parser = futures[fut]
             try:
                 items = parser(fut.result(), count)
@@ -317,6 +319,49 @@ _CALC_ALLOWED_NODES = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Constant,
                         ast.Pow, ast.USub, ast.UAdd)
 
 
+class _CalcTooBig(Exception):
+    pass
+
+
+def _calc_safe_pow(base, exp):
+    """幂运算防卡死：9**9**9 这类表达式静态检查拦不住，求值时按位数拦截。"""
+    if abs(exp) > 10000:
+        raise _CalcTooBig()
+    if base != 0 and abs(base) > 1 and abs(exp) > 0:
+        import math
+        digits = abs(exp) * math.log10(abs(base))
+        if digits > 100000:   # 结果超过 10 万位数字就拒绝
+            raise _CalcTooBig()
+    return base ** exp
+
+
+def _calc_eval(node):
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.BinOp):
+        l, r = _calc_eval(node.left), _calc_eval(node.right)
+        op = type(node.op)
+        if op is ast.Pow:
+            return _calc_safe_pow(l, r)
+        if op is ast.Add:
+            return l + r
+        if op is ast.Sub:
+            return l - r
+        if op is ast.Mult:
+            return l * r
+        if op is ast.Div:
+            return l / r
+        if op is ast.FloorDiv:
+            return l // r
+        if op is ast.Mod:
+            return l % r
+        raise _CalcTooBig()
+    if isinstance(node, ast.UnaryOp):
+        v = _calc_eval(node.operand)
+        return -v if isinstance(node.op, ast.USub) else +v
+    raise _CalcTooBig()
+
+
 def calculator(expression):
     """安全计算器：AST 白名单求值，不 exec（LangChain Calculator 同用途，无依赖实现）。"""
     expr = str(expression or "").strip().replace("×", "*").replace("÷", "/").replace("^", "**")
@@ -332,8 +377,7 @@ def calculator(expression):
         if isinstance(node, ast.Constant) and not isinstance(node.value, (int, float)):
             return "只允许数字常量，不允许字符串"
     try:
-        # 已经过 AST 白名单校验，节点只有数字和四则/幂运算
-        value = eval(compile(tree, "<calc>", "eval"))  # noqa: S307
+        value = _calc_eval(tree.body)   # 自定义求值：幂运算带防卡死上限
         out = ("%s = %s" % (expr, repr(value)))
         if isinstance(value, float) and value == int(value) and abs(value) < 1e15:
             out += "（整数结果：%d）" % int(value)
@@ -342,6 +386,8 @@ def calculator(expression):
         return "除零错误"
     except OverflowError:
         return "数值溢出"
+    except _CalcTooBig:
+        return "结果/中间值过大（超过 10 万位数字），请分步计算"
     except Exception as e:
         return "计算失败：%s" % e
 
@@ -350,6 +396,12 @@ def run_python(code, work_dir=""):
     """执行一段 Python 代码并返回输出（smolagents PythonInterpreterTool 同用途）。"""
     if not str(code or "").strip():
         return "代码为空"
+    low = re.sub(r"\s+", " ", str(code).lower())
+    for bad in ("shutil.rmtree(", "os.system('format", 'os.system("format',
+                "os.remove(:", "format-volume", "subprocess.run('shutdown",
+                "send2trash(", "zwdelete", "reg delete"):
+        if bad in low:
+            return "被拒绝：代码命中高危黑名单（%s），破坏性操作不做。" % bad
     import tempfile
     try:
         f = tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8")
@@ -407,12 +459,18 @@ def wikipedia_search(query, lang="zh"):
 
 
 # 本地笔记（RAG-lite，mem0/LangChain Memory 同用途）：JSON 存储 + 关键词打分检索
-_NOTES_PATH = os.path.join(APP_ROOT, "agent_data", "notes.json")
+# 路径延迟求值：frozen(exe) 模式下 server.py 会在运行时改写 APP_ROOT，
+# import 时求值会把笔记写进解包临时目录，重启即丢
+_NOTES_LOCK = threading.Lock()
+
+
+def _notes_path():
+    return os.path.join(APP_ROOT, "agent_data", "notes.json")
 
 
 def _load_notes():
     try:
-        with open(_NOTES_PATH, "rb") as f:
+        with open(_notes_path(), "rb") as f:
             return json.loads(f.read().decode("utf-8"))
     except Exception:
         return []
@@ -424,12 +482,13 @@ def save_note(title, content):
     if not content:
         return "内容为空，没保存"
     import datetime as _dt
-    notes = _load_notes()
-    notes.insert(0, {"title": title, "content": content,
-                     "time": _dt.datetime.now().strftime("%Y-%m-%d %H:%M")})
-    os.makedirs(os.path.dirname(_NOTES_PATH), exist_ok=True)
-    with open(_NOTES_PATH, "w", encoding="utf-8") as f:
-        json.dump(notes[:500], f, ensure_ascii=False, indent=1)   # 上限 500 条
+    with _NOTES_LOCK:
+        notes = _load_notes()
+        notes.insert(0, {"title": title, "content": content,
+                         "time": _dt.datetime.now().strftime("%Y-%m-%d %H:%M")})
+        os.makedirs(os.path.dirname(_notes_path()), exist_ok=True)
+        with open(_notes_path(), "w", encoding="utf-8") as f:
+            json.dump(notes[:500], f, ensure_ascii=False, indent=1)   # 上限 500 条
     return "已保存笔记「%s」（现共 %d 条）。之后用 search_notes 可以检索" % (title, min(len(notes), 500))
 
 
@@ -457,9 +516,38 @@ def search_notes(query):
     return "\n".join(out)
 
 
+def _is_private_host(host):
+    """判断主机名是否指向内网/环回地址，防 SSRF（fetch_url 不允许打内网）。"""
+    host = (host or "").strip().lower().strip("[]")
+    if not host:
+        return True
+    if host in ("localhost",) or host.endswith(".localhost") or host.endswith(".local"):
+        return True
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except Exception:
+        return True   # 解析失败的一律视为不可信
+    for info in infos:
+        ip = info[4][0]
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            continue
+        if (addr.is_private or addr.is_loopback or addr.is_link_local
+                or addr.is_reserved or addr.is_multicast):
+            return True
+    return False
+
+
 def fetch_url(url):
     if not re.match(r"^https?://", url or ""):
         return "只支持 http/https 链接"
+    try:
+        host = urllib.parse.urlsplit(url).hostname
+    except Exception:
+        return "链接不合法"
+    if _is_private_host(host):
+        return "被拒绝：不允许访问内网/本机地址（安全限制）"
     raw = _http(url)
     text = ""
     # 首选 trafilatura：社区标准的正文抽取库，去导航/广告/页脚效果远好于正则
@@ -648,7 +736,27 @@ def glob_files(pattern, path=".", work_dir=""):
         full, pattern, len(matches), "\n".join(matches[:200]))
 
 
+# 高危命令黑名单：即使 allowCommand 开着也拒绝（提示注入的最后防线）。
+# 命中即拒，宁可误杀不可放行破坏性操作
+_DANGEROUS_CMDS = (
+    "format ", "format-volume", "diskpart", "cipher /w", "rd /s /q c:",
+    "remove-item -recurse", "remove-itemitem -r", "rm -rf /", "rm -rf ~",
+    "del /f /s /q c:\\", "rmdir /s /q c:\\", "shutdown", "restart-computer",
+    "reg delete hk", "reg add hk", "bcdedit", "vssadmin delete",
+    "wmic shadowshadow", "mklink", "attrib -s -h", "schtasks /create",
+    "net user ", "net localgroup", "set-mppreference", "add-mppreference",
+    "invoke-expression (invoke-webrequest", "iex (iwr", "iex(iwr",
+    "curl | iex", "curl|bash", "wget | sh", "start-process -verb runas",
+    "-encodedcommand", "downloadsstring", "netstat -ano", "taskkill /f /im",
+)
+
+
 def run_command(command, work_dir=""):
+    low = " " + re.sub(r"\s+", " ", str(command or "").lower()) + " "
+    for bad in _DANGEROUS_CMDS:
+        if bad in low:
+            return ("被拒绝：命令命中高危黑名单（%s…）。\n"
+                    "这类破坏性/系统级操作一律不做；如是用户明确要求，请让用户自己在终端手动执行。" % bad.strip())
     cwd = None
     if work_dir:
         try:
@@ -773,6 +881,12 @@ TOOL_DEFS = [
         "description": "按出口 IP 粗略判断用户所在城市（免 Key、无需授权，精度到城市）。用户问天气/本地信息但没说城市时可先调它。",
         "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {
+        "name": "lark_cli",
+        "description": "调用飞书/Lark 命令行（lark-cli，全量 OpenAPI）。可查日程/任务/消息记录/文档/多维表格/审批/OKR 等一切飞书功能。读操作直接执行；发消息、建文档等写操作需用户开启命令权限。args 为 lark-cli 子命令字符串，如 \"calendar +agenda\"、\"task +get-my-tasks\"、\"im +search 王小凡\"。",
+        "parameters": {"type": "object", "properties": {
+            "args": {"type": "string", "description": "lark-cli 子命令及参数（不含 lark-cli 本身）"}},
+            "required": ["args"]}}},
+    {"type": "function", "function": {
         "name": "get_weather",
         "description": "查询当前天气和未来几天预报（Open-Meteo，免 Key）。",
         "parameters": {"type": "object", "properties": {
@@ -790,8 +904,14 @@ def run_tool(call, perm=None):
     try:
         args = json.loads(raw) if isinstance(raw, str) else (raw or {})
     except Exception:
-        args = {}
+        # 不再静默置空：告诉模型参数格式错了，让它修正重试，避免浪费轮次
+        return "参数不是合法 JSON（收到：%s）。请修正 arguments 格式后重试。" % str(raw)[:200]
     work_dir = perm.get("workDir") or ""
+    # MCP 工具：名字以 mcp_ 开头的走 MCP 服务器执行（tools/call）
+    if name.startswith("mcp_"):
+        return mcp_call_tool(name, args)
+    if name == "lark_cli":
+        return lark_cli(args.get("args", ""), perm)
     try:
         if name == "web_search":
             return web_search(args.get("query", ""), args.get("count", 5),
@@ -841,3 +961,196 @@ def run_tool(call, perm=None):
         return "被拒绝：%s" % e
     except Exception as e:
         return "工具执行失败：%s" % e
+
+
+def _which_lark():
+    import shutil
+    return shutil.which("lark-cli") or shutil.which("lark-cli.cmd")
+
+
+# lark-cli 写操作动词：这些需要用户开"允许执行命令"权限（防止模型擅自发消息/改文档）
+_LARK_WRITE_WORDS = ("send", "create", "delete", "update", "write", "reply", "add",
+                     "remove", "patch", "set", "move", "mark", "upload", "import",
+                     "approve", "reject", "subscribe", "unsubscribe")
+
+
+def lark_cli(args, perm=None):
+    """调用飞书命令行工具 lark-cli（全量 OpenAPI：消息/日历/任务/文档/表格/审批/OKR…）。
+    读操作直接放行；写操作（发消息/建文档/改数据等）需要用户开「允许执行命令」。"""
+    exe = _which_lark()
+    if not exe:
+        return "本机没有安装 lark-cli（npm install -g 后重启小凡）"
+    a = str(args or "").strip()
+    if not a:
+        return "用法：lark_cli(args=\"<子命令> <参数>…\")，如 args=\"calendar +agenda\""
+    low = " " + re.sub(r"\s+", " ", a.lower()) + " "
+    # 安全白名单：凭据/登录态相关一律不给模型碰
+    if re.search(r"\b(logout|token|credential|dpop|config\s+set)\b", low):
+        return "被拒绝：登录态/凭据相关命令不开放给模型。"
+    if not perm or not perm.get("allowCommand"):
+        if any(w in low for w in _LARK_WRITE_WORDS):
+            return ("被拒绝：这是飞书写操作（发消息/建文档/改数据），需要用户在设置里"
+                    "打开「允许执行命令」权限；查询类操作不受限，可先做只读查询。")
+    import shlex
+    try:
+        argv = [exe] + shlex.split(a)
+    except ValueError as e:
+        return "参数解析失败：%s" % e
+    try:
+        p = subprocess.run(argv, capture_output=True, timeout=90)
+        out = (p.stdout or b"").decode("utf-8", errors="replace")
+        err = (p.stderr or b"").decode("utf-8", errors="replace")
+        text = (out + (("\n[stderr]\n" + err) if err.strip() else "")).strip()
+        text = text or "（命令执行成功，无输出）"
+        if len(text) > MAX_CHARS:
+            text = text[:MAX_CHARS] + "\n…（已截断）"
+        return "exit=%d\n%s" % (p.returncode, text)
+    except subprocess.TimeoutExpired:
+        return "lark-cli 超时（90 秒上限）"
+    except Exception as e:
+        return "执行失败：%s" % e
+
+
+# ==================================================================
+# MCP（Model Context Protocol）客户端 —— 零依赖实现
+# 协议：Anthropic 开源的 stdio JSON-RPC（MIT）。配置 agent_data/mcp_servers.json
+# 后，启动时拉起各 MCP 服务器，把它们的工具自动挂进 TOOL_DEFS（前缀 mcp_），
+# 小凡即插即用整个 MCP 生态的现成工具，无需逐个手写。
+# ==================================================================
+
+_MCP_PROCS = {}        # server名 -> Popen
+_MCP_TOOLS = {}        # server名 -> [ {name, description, inputSchema} ]
+_MCP_LOCK = threading.Lock()
+_MCP_NEXT_ID = [1]
+
+
+def _mcp_config_path():
+    return os.path.join(APP_ROOT, "agent_data", "mcp_servers.json")
+
+
+def _mcp_rpc(proc, method, params, timeout=30):
+    """给 MCP 服务器发一条 JSON-RPC 请求，按 id 等回对应响应（行分隔 JSON）。
+    每个 MCP 服务器一把锁：不同服务器可并发调用，互不阻塞。"""
+    locks = _MCP_PROCS.setdefault("#locks", {})
+    lock = locks.setdefault(id(proc), threading.Lock())
+    with lock:
+        rid = _MCP_NEXT_ID[0]
+        _MCP_NEXT_ID[0] += 1
+        req = (json.dumps({"jsonrpc": "2.0", "id": rid, "method": method,
+                           "params": params}) + "\n").encode("utf-8")
+        proc.stdin.write(req)
+        proc.stdin.flush()
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            line = proc.stdout.readline()
+            if not line:
+                raise ConnectionError("MCP 服务器关闭了连接")
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line.decode("utf-8", errors="replace"))
+            except Exception:
+                continue
+            if msg.get("id") == rid:
+                if "error" in msg:
+                    raise RuntimeError("MCP 错误: %s" % msg["error"])
+                return msg.get("result") or {}
+        raise TimeoutError("MCP 响应超时（%ss）" % timeout)
+
+
+def mcp_reset():
+    """停掉所有 MCP 服务器进程并清空状态（设置里保存配置后重新挂载用）。"""
+    for p in _MCP_PROCS.values():
+        try:
+            p.kill()
+        except Exception:
+            pass
+    _MCP_PROCS.clear()
+    _MCP_TOOLS.clear()
+
+
+def mcp_status():
+    """返回当前挂载概览（服务器名 → 工具名列表）。"""
+    return {s: [t["name"] for t in tools] for s, tools in _MCP_TOOLS.items()}
+
+
+def mcp_init():
+    """读配置、拉起所有 MCP 服务器、握手并拉取工具清单。失败的服务器跳过不拖垮主程序。"""
+    cfg_path = _mcp_config_path()
+    try:
+        cfg = json.loads(open(cfg_path, "rb").read().decode("utf-8"))
+    except Exception:
+        return
+    for srv in cfg.get("servers") or []:
+        sname = str(srv.get("name") or "").strip()
+        cmd = srv.get("command") or ""
+        if not sname or not cmd or sname in _MCP_PROCS:
+            continue
+        try:
+            proc = subprocess.Popen(
+                [cmd] + list(srv.get("args") or []),
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                cwd=srv.get("cwd") or None,
+                env={**os.environ, **(srv.get("env") or {})})
+            _MCP_PROCS[sname] = proc
+            _mcp_rpc(proc, "initialize", {
+                "protocolVersion": "2024-11-05", "capabilities": {},
+                "clientInfo": {"name": "xiaofan", "version": "1.7"}}, timeout=20)
+            proc.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
+            proc.stdin.flush()
+            res = _mcp_rpc(proc, "tools/list", {}, timeout=20)
+            tools = []
+            for t in (res.get("tools") or []):
+                tname = "%s" % t.get("name", "")
+                tools.append({
+                    "name": "mcp_%s_%s" % (sname, tname),
+                    "description": "[MCP:%s] %s" % (sname, t.get("description", "")),
+                    "inputSchema": t.get("inputSchema") or {"type": "object", "properties": {}}})
+            _MCP_TOOLS[sname] = tools
+            print("[MCP] %s 已连接，挂载 %d 个工具" % (sname, len(tools)), flush=True)
+        except Exception as e:
+            print("[MCP] %s 启动失败，已跳过：%s" % (sname, e), flush=True)
+            try:
+                _MCP_PROCS.pop(sname, None).kill()
+            except Exception:
+                pass
+
+
+def mcp_tool_defs():
+    """把所有 MCP 服务器工具转成 OpenAI function calling 格式，追加到工具清单。"""
+    out = []
+    for tools in _MCP_TOOLS.values():
+        for t in tools:
+            out.append({"type": "function", "function": {
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": t["inputSchema"]}})
+    return out
+
+
+def mcp_call_tool(fullname, args):
+    """执行 mcp_<server>_<tool> 形式的调用。"""
+    rest = fullname[len("mcp_"):]
+    for sname in _MCP_TOOLS:
+        if rest.startswith(sname + "_"):
+            tool = rest[len(sname) + 1:]
+            proc = _MCP_PROCS.get(sname)
+            if not proc or proc.poll() is not None:
+                return "MCP 服务器 %s 已断开" % sname
+            try:
+                res = _mcp_rpc(proc, "tools/call",
+                               {"name": tool, "arguments": args}, timeout=120)
+                parts = []
+                for c in (res.get("content") or []):
+                    if c.get("type") == "text":
+                        parts.append(c.get("text", ""))
+                    else:
+                        parts.append(json.dumps(c, ensure_ascii=False))
+                if res.get("isError"):
+                    return "工具返回错误：" + ("\n".join(parts) or "未知错误")
+                return ("\n".join(parts) or "（无输出）")[:MAX_CHARS]
+            except Exception as e:
+                return "MCP 调用失败：%s" % e
+    return "未知 MCP 工具：%s" % fullname

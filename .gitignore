@@ -25,3 +25,8 @@ _*
 
 # 运行时数据
 agent_data/
+
+dev/
+_dsh_ref/
+agent_data/
+config.local.js
