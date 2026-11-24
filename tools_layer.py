@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """小凡智能体 · 工具层（function calling）
 
 模型只决定「要不要用工具、用哪个、传什么参数」；真正干活的是这里：
@@ -1009,6 +1009,184 @@ def lark_cli(args, perm=None):
         return "lark-cli 超时（90 秒上限）"
     except Exception as e:
         return "执行失败：%s" % e
+
+
+# ==================================================================
+# 多媒体与知识库工具（参考 QwenLM/Qwen-Agent 的 image_gen / 视觉理解 /
+# retrieval 三件套，零第三方依赖实现）
+# ==================================================================
+
+# server.py 每次对话请求进来时注入当前模型的 API 配置，供下面两个工具复用
+_API_CTX = {"base": "", "key": "", "model": ""}
+
+
+def set_api_ctx(base, key, model):
+    _API_CTX.update({"base": (base or "").rstrip("/"), "key": key or "",
+                     "model": model or ""})
+
+
+_VISION_HINTS = ("glm-4v", "glm-4.5v", "glm-4.6v", "4o", "vision", "vl-",
+                 "claude", "gemini", "gpt-4-turbo", "qwen-vl", "doubao-vision")
+
+
+def _api_post(path, body, timeout=120):
+    base, key = _API_CTX["base"], _API_CTX["key"]
+    if not base:
+        raise RuntimeError("模型 API 未配置（还没开始过对话）")
+    req = urllib.request.Request(
+        base + path, data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json",
+                 "Authorization": "Bearer " + key}, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8", errors="replace"))
+
+
+def image_gen(prompt):
+    """文生图：智谱 CogView（cogview-3-flash 免费）。图片存 agent_data/images/。"""
+    prompt = (prompt or "").strip()
+    if not prompt:
+        return "画面描述为空"
+    data = _api_post("/images/generations", {"model": "cogview-3-flash",
+                                             "prompt": prompt})
+    url = ((data.get("data") or [{}])[0].get("url") or "")
+    if not url:
+        return "生成失败：%s" % str(data)[:200]
+    out_dir = os.path.join(APP_ROOT, "agent_data", "images")
+    os.makedirs(out_dir, exist_ok=True)
+    fname = "img_%s.png" % time.strftime("%Y%m%d_%H%M%S")
+    req = urllib.request.Request(url, headers={"User-Agent": _UA})
+    with urllib.request.urlopen(req, timeout=60) as r, \
+            open(os.path.join(out_dir, fname), "wb") as f:
+        f.write(r.read(10 * 1024 * 1024))
+    url_path = "/api/file?f=images/" + fname
+    # 磁盘容量保护：只保留最近 50 张生成图，更早的自动删除（产物目录治理）
+    try:
+        olds = sorted(
+            (os.path.join(out_dir, n) for n in os.listdir(out_dir)
+             if n.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))),
+            key=os.path.getmtime)
+        for old in olds[:-50]:
+            try:
+                os.remove(old)
+            except OSError:
+                pass
+    except Exception:
+        pass
+    return ("图片已生成保存：agent_data/images/%s（描述：%s）\n"
+            "回复用户时，必须在答案里嵌入下面这行 Markdown，让图片直接显示在对话中：\n"
+            "![生成的图片](%s)\n"
+            "并告诉用户：图片已存到 agent_data/images/，点侧边栏「🗂 产物画布」可随时查看。"
+            % (fname, prompt[:40], url_path))
+
+
+def analyze_image(image, question=""):
+    """看图：把本地路径或网络图片 URL 交给视觉模型分析（GLM-4V 免费）。
+    参考 Qwen-Agent image_analysis：question 为空则做通用描述。"""
+    image = (image or "").strip()
+    if not image:
+        return "缺少图片地址或本地路径"
+    if re.match(r"^https?://", image):
+        img_url = image
+    else:
+        p = image if os.path.isabs(image) else os.path.join(APP_ROOT, image)
+        p = os.path.abspath(p)
+        if not os.path.isfile(p):
+            return "找不到本地图片：%s" % p
+        import base64 as _b64
+        ext = os.path.splitext(p)[1].lower().lstrip(".") or "png"
+        mime = "jpeg" if ext in ("jpg", "jpeg") else ext
+        raw = open(p, "rb").read(8 * 1024 * 1024)
+        img_url = "data:image/%s;base64,%s" % (mime, _b64.b64encode(raw).decode())
+    model = _API_CTX["model"] or ""
+    if not any(h in model.lower() for h in _VISION_HINTS):
+        model = "glm-4v-flash"   # 主模型不带视觉时退到智谱免费视觉模型
+    q = question.strip() or "请详细描述这张图片的内容。"
+    data = _api_post("/chat/completions", {
+        "model": model, "stream": False, "max_tokens": 1024,
+        "messages": [{"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": img_url}},
+            {"type": "text", "text": q}]}]})
+    try:
+        return data["choices"][0]["message"]["content"] or "（模型没有返回内容）"
+    except Exception:
+        return "分析失败：%s" % str(data)[:200]
+
+
+# ---------- 知识库（参考 Qwen-Agent retrieval：切块 + 相关性检索） ----------
+# 文件放 agent_data/kb/（支持 txt/md），支持子文件夹。
+# 索引按文件 mtime 缓存：文件一改下次查询自动重建对应块，永远不读旧版本。
+
+_KB_CACHE = {}   # 文件路径 -> (mtime, [块])
+
+
+def _kb_chunk(path, size=400):
+    mtime = os.path.getmtime(path)
+    hit = _KB_CACHE.get(path)
+    if hit and hit[0] == mtime:
+        return hit[1]
+    try:
+        text = open(path, "rb").read().decode("utf-8", errors="replace")
+    except Exception:
+        return []
+    paras = [p.strip() for p in re.split(r"\n\s*\n|(?<=。)", text) if p.strip()]
+    chunks, buf = [], ""
+    for p in paras:
+        if len(buf) + len(p) <= size:
+            buf += ("" if not buf else "\n") + p
+        else:
+            if buf:
+                chunks.append(buf)
+            buf = p[:size]
+    if buf:
+        chunks.append(buf)
+    _KB_CACHE[path] = (mtime, chunks)
+    return chunks
+
+
+def _kb_tokens(s):
+    """中英混合简易分词：英文按词、中文按字（bigram 加权）。"""
+    words = re.findall(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]", s.lower())
+    out = list(words)
+    zh = [w for w in words if re.match(r"[\u4e00-\u9fff]", w)]
+    out += [a + b for a, b in zip(zh, zh[1:])]   # 中文 bigram 提升区分度
+    return out
+
+
+def kb_search(query, top_k=4):
+    """在 agent_data/kb/ 知识库里按相关性检索文档片段（零依赖 TF 打分）。
+    索引实时跟随文件变化：新增/修改/删除文档立即生效，无需重建。"""
+    query = (query or "").strip()
+    if not query:
+        return "检索词为空"
+    kb_dir = os.path.join(APP_ROOT, "agent_data", "kb")
+    if not os.path.isdir(kb_dir):
+        return ("知识库为空。把 .txt / .md 文档放进 agent_data/kb/ 文件夹"
+                "（可建子文件夹）即可自动收录。")
+    q_tokens = _kb_tokens(query)
+    q_set = set(q_tokens)
+    scored = []
+    for root, _dirs, files in os.walk(kb_dir):
+        for fn in files:
+            if not fn.lower().endswith((".txt", ".md")):
+                continue
+            path = os.path.join(root, fn)
+            for i, chunk in enumerate(_kb_chunk(path)):
+                c_set = set(_kb_tokens(chunk))
+                if not c_set:
+                    continue
+                inter = q_set & c_set
+                if not inter:
+                    continue
+                score = len(inter) / (len(q_set) ** 0.5 * len(c_set) ** 0.25)
+                scored.append((score, fn, i, chunk))
+    if not scored:
+        return "知识库里没有找到与「%s」相关的内容" % query
+    scored.sort(reverse=True)
+    out = []
+    for score, fn, i, chunk in scored[:max(1, min(int(top_k or 4), 8))]:
+        out.append("[%s 片段%d 相关度%.2f]\n%s" % (fn, i + 1, score,
+                                                 chunk[:MAX_CHARS // 4]))
+    return "\n\n".join(out)
 
 
 # ==================================================================
