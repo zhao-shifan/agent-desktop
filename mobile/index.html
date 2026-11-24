@@ -214,6 +214,11 @@ body::before{
   flex-shrink:0;line-height:1;border:none;background:transparent;cursor:pointer;
 }
 .sess .del:hover{color:#e5735f}
+.sess-rename{
+  flex:1;min-width:0;padding:3px 6px;border-radius:6px;font-size:13px;
+  color:var(--txt);background:var(--panel);border:1px solid var(--accent);
+  outline:none;
+}
 .side-foot{padding:14px 16px;border-top:1px solid var(--line)}
 .btn-settings{
   width:100%;padding:10px;border-radius:10px;cursor:pointer;font-size:12.5px;
@@ -379,6 +384,10 @@ body::before{
 .file-card .fc-name{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .file-card .fc-size{color:var(--faint);font-size:11px;flex-shrink:0}
 .file-card .fc-dl{margin-left:auto;color:var(--accent2);flex-shrink:0}
+/* 卡片上的「👁 预览」小胶囊：手机端点开直接全屏看内容，不走侧边栏 */
+.file-card .fc-pv{color:var(--dim);font-size:11.5px;flex-shrink:0;cursor:pointer;
+  padding:3px 9px;border:1px solid var(--line2);border-radius:99px;transition:.18s}
+.file-card .fc-pv:hover{color:var(--accent2);border-color:var(--accent);background:var(--accent-dim)}
 .content{font-size:15px;line-height:1.72;color:var(--txt);word-break:break-word}
 .msg.user .content{color:#cfccc4}
 .content p{margin:0 0 .45em}
@@ -2036,8 +2045,7 @@ function setTheme(id){
   if(id) document.body.dataset.theme=id; else delete document.body.dataset.theme;
   renderThemeCards();
   if(window.__applyBGEffect) window.__applyBGEffect(id||"");
-  const ov = $("themeOverlay");
-  if(ov.classList.contains("show")) setTimeout(()=>ov.classList.remove("show"), 350); // 选择后自动关闭
+  // 弹框保持打开（和壁纸库一致），可以继续换着看，用户手动关闭
 }
 function openSettings(){
   if(cfg){
@@ -2338,8 +2346,8 @@ function renderSessions(){
     const more = `<button class="sess-more ${c.pinned?"always":""}" onclick="event.stopPropagation();openSessMenu(event,'${c.id}')" title="更多">⋯</button>`;
     const pin = c.pinned ? `<span class="pin-tag" title="已置顶">📌</span>` : "";
     const del = `<button class="del" title="删除对话" onclick="event.stopPropagation();delChat('${c.id}')">✕</button>`;
-    return `<div class="sess ${c.id===curId?"active":""}" onclick="openChat('${c.id}')">
-       ${pin}<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(c.title)}</span>${more}${del}
+    return `<div class="sess ${c.id===curId?"active":""}" data-id="${c.id}" onclick="openChat('${c.id}')">
+       ${pin}<span class="sess-title" style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(c.title)}</span>${more}${del}
      </div>`;
   }).join("");
 }
@@ -2373,11 +2381,33 @@ document.addEventListener("click", e=>{ if(!e.target.closest(".sess-menu") && !e
 function renameChat(id){
   closeSessMenu();
   const c = chats.find(c=>c.id===id); if(!c) return;
-  const name = prompt("重命名会话：", c.title || "");
-  if(name === null) return;
-  c.title = name.trim() || c.title;
-  save(); renderSessions();
-  setStatus("已重命名：" + c.title);
+  // 行内编辑：原地把标题换成输入框（豆包/千问的做法），Enter 确认 / Esc 取消
+  const sess = document.querySelector(`.sess[data-id="${id}"]`);
+  const span = sess && sess.querySelector(".sess-title");
+  if(!span){ renderSessions(); return; }   // 会话不在当前视口（被搜索过滤等），刷新即可
+  const input = document.createElement("input");
+  input.className = "sess-rename";
+  input.value = c.title || "";
+  span.replaceWith(input);
+  input.focus(); input.select();
+  let done = false;
+  const commit = ()=>{
+    if(done) return; done = true;
+    const name = input.value.trim();
+    if(name && name !== c.title){
+      c.title = name;
+      save();
+      setStatus("已重命名：" + c.title);
+    }
+    renderSessions();
+  };
+  input.addEventListener("keydown", e=>{
+    e.stopPropagation();
+    if(e.key === "Enter") input.blur();
+    else if(e.key === "Escape"){ done = true; renderSessions(); }
+  });
+  input.addEventListener("click", e=>e.stopPropagation()); // 别触发 openChat
+  input.addEventListener("blur", commit);
 }
 function pinChat(id){
   const c = chats.find(c=>c.id===id); if(!c) return;
@@ -2565,8 +2595,20 @@ function fileCardHTML(idx, name, size, onclick){
     <span class="fc-icon">📎</span>
     <span class="fc-name">${esc(name)}</span>
     <span class="fc-size">${size}</span>
+    <span class="fc-pv" onclick="event.stopPropagation();previewFileCard(${idx})">👁 预览</span>
     <span class="fc-dl">⬇ 下载</span>
   </div>`;
+}
+/* 手机端文件卡片预览：全屏弹层直接看内容（docx/xlsx/pdf 都是同一段原文生成的，直接渲染原文） */
+function previewFileCard(idx){
+  const card = document.querySelector(`#msg-${idx} .file-card`);
+  const fn = card?.dataset?.name || "文件预览";
+  const t = rawMsgText(idx);
+  if(!t.trim()){ setStatus("找不到原文，重新打开这条对话再试", true); return; }
+  $("fpTitle").textContent = "👁 " + fn;
+  $("fpBody").innerHTML = mdRender(t);
+  window._fpIdx = idx;
+  $("filePreview").classList.add("show");
 }
 /* 把成品文件卡片插到该条回复的消息操作区上方 */
 async function attachExport(idx, type){
@@ -3886,6 +3928,20 @@ function resetBgImage(){
     <div class="modal-actions" style="margin-top:12px">
       <button class="btn-ghost" style="flex:1" onclick="$('docPreview').classList.remove('show')">关闭</button>
       <button class="btn-primary" id="docPrevDownload" style="flex:2">⬇ 下载 Word 文档</button>
+    </div>
+  </div>
+</div>
+<!-- 文件卡片全屏预览（手机端：不走侧边栏，点卡片上的「👁 预览」直接看） -->
+<div class="overlay" id="filePreview">
+  <div class="modal" style="width:min(680px,100%);padding-top:22px">
+    <div class="modal-head">
+      <h3 id="fpTitle">👁 文件预览</h3>
+      <button class="x-close" onclick="$('filePreview').classList.remove('show')">✕</button>
+    </div>
+    <div id="fpBody" style="flex:1;overflow-y:auto;border:1px solid var(--line2);border-radius:12px;padding:22px 26px;background:rgba(255,255,255,.97);color:#222;font-size:14px;line-height:1.85"></div>
+    <div class="modal-actions" style="margin-top:12px">
+      <button class="btn-ghost" style="flex:1" onclick="$('filePreview').classList.remove('show')">关闭</button>
+      <button class="btn-primary" style="flex:2" onclick="downloadStored(window._fpIdx)">⬇ 下载文件</button>
     </div>
   </div>
 </div>

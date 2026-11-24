@@ -24,6 +24,43 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import tools_layer
 
+# ---------- 「文本→工具调用」恢复层（Qwen-Agent/LangChain 业界标准做法） ----------
+# 模型没发标准 tool_calls，而是把工具参数（{"name":..,"arguments":..} 或画图 {"prompt":..}）
+# 当正文吐出来时，在框架层把它解析回来真正执行，而不是让用户看到裸 JSON。
+# 参考：Qwen-Agent fncall_agent._detect_tool + LLM 层 function-call 恢复、LangChain AgentOutputParser。
+_TOOL_JSON_RE = re.compile(r"```(?:json)?\s*(\{[\s\S]{5,4000}?\})\s*```|(\{[\s\S]{5,4000}?\})")
+
+def _json_brief(args):
+    try:
+        return json.dumps(args, ensure_ascii=False)[:80]
+    except Exception:
+        return str(args)[:80]
+
+def _recover_tool_call(text, known_names):
+    """从模型正文里恢复被漏掉的工具调用。返回 (name, arguments_dict, cleaned_text) 或 None。"""
+    if not text or "{" not in text:
+        return None
+    for m in _TOOL_JSON_RE.finditer(text):
+        raw = m.group(1) or m.group(2)
+        try:
+            d = json.loads(raw)
+        except Exception:
+            continue
+        if not isinstance(d, dict):
+            continue
+        name = str(d.get("name") or "").strip()
+        if name in known_names:
+            args = d.get("arguments") if isinstance(d.get("arguments"), dict) else \
+                {k: v for k, v in d.items() if k not in ("name",)}
+            cleaned = (text[:m.start()] + text[m.end():]).strip()
+            return name, args, cleaned
+        # 画图特例：模型只吐了 {"prompt":...,"file_prefix":...}，没带 name
+        if "prompt" in d and "image_gen" in known_names:
+            cleaned = (text[:m.start()] + text[m.end():]).strip()
+            return "image_gen", d, cleaned
+    return None
+
+
 # 兼容 PyInstaller 打包：资源文件在临时解包目录
 if getattr(sys, "frozen", False):
     ROOT = sys._MEIPASS
@@ -394,6 +431,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.handle_models()
             elif self.path == "/api/docx":
                 self.handle_docx()
+            elif self.path == "/api/pdf":
+                self.handle_pdf()
             elif self.path == "/api/skill":
                 self.handle_skill()
             elif self.path == "/api/verify":
@@ -446,6 +485,67 @@ class Handler(BaseHTTPRequestHandler):
                          "mounted": mounted,
                          "lifecycle": tools_layer.mcp_lifecycle(),
                          "total": sum(len(v) for v in mounted.values())})
+
+    def _find_browser(self):
+        """找本机 Edge/Chrome：Windows 绝佳的零依赖 PDF 排版引擎（headless print-to-pdf）。"""
+        cands = [
+            os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%LocalAppData%\Microsoft\Edge\Application\msedge.exe"),
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+        ]
+        for c in cands:
+            try:
+                if os.path.exists(c):
+                    return c
+            except Exception:
+                pass
+        return None
+
+    def handle_pdf(self):
+        """Markdown 对应的排版 HTML → 本机 Edge/Chrome headless 打印成 PDF。
+        参考千问/豆包的服务端导出：浏览器排版，中文/表格/代码块样式全保留。"""
+        payload = self._json_body()
+        html = payload.get("html", "")
+        title = (payload.get("filename") or "小凡智能体文档").strip()[:50]
+        exe = self._find_browser()
+        if not exe:
+            self._send_json({"error": "本机未找到 Edge/Chrome，无法在服务端生成 PDF"}, 500)
+            return
+        import tempfile
+        import time
+        body = None
+        err = ""
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                src = os.path.join(td, "doc.html")
+                out = os.path.join(td, "doc.pdf")
+                with open(src, "w", encoding="utf-8") as f:
+                    f.write(html)
+                cmd = [exe, "--headless", "--disable-gpu", "--no-pdf-header-footer",
+                       "--print-to-pdf=" + out, "file:///" + src.replace("\\", "/")]
+                r = subprocess.run(cmd, timeout=90, capture_output=True)
+                if os.path.exists(out) and os.path.getsize(out) > 100:
+                    with open(out, "rb") as f:
+                        body = f.read()
+                else:
+                    err = r.stderr.decode("utf-8", "ignore")[-300:]
+        except Exception as e:
+            err = str(e)
+        if not body:
+            self._send_json({"error": "PDF 生成失败：" + (err or "未知原因")}, 500)
+            return
+        import urllib.parse
+        fname_encoded = urllib.parse.quote(title + ".pdf")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Disposition",
+                         f"attachment; filename*=UTF-8''{fname_encoded}")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def handle_docx(self):
         payload = self._json_body()
@@ -595,9 +695,12 @@ class Handler(BaseHTTPRequestHandler):
         model = payload.get("model") or "cogview-3-flash"
         if not base or not prompt:
             self._send_json({"error": "缺少 baseUrl 或画面描述"}, 400); return
+        # 豆包同款：出图就要无水印原图（界面上的「AI 生成」角标由前端 DOM 叠加，
+        # 下载时可选是否把标识烧进图片），这样「下载原图（无标识）」才是真干净
+        body = {"model": model, "prompt": prompt, "watermark_enabled": False}
         req = urllib.request.Request(
             base + "/images/generations",
-            data=json.dumps({"model": model, "prompt": prompt}).encode("utf-8"),
+            data=json.dumps(body).encode("utf-8"),
             headers={"Content-Type": "application/json", "Authorization": "Bearer " + key},
             method="POST")
         try:
@@ -999,6 +1102,32 @@ class Handler(BaseHTTPRequestHandler):
                     final_text = msg.get("content") or ""
                     if not final_text.strip() and rc:
                         final_text = rc
+                    # 恢复层：模型把工具参数写成正文 → 框架层替它真正执行，
+                    # 把结果回灌模型收尾（Qwen-Agent _detect_tool 同思路）
+                    try:
+                        rec = _recover_tool_call(final_text,
+                                                 {t["function"]["name"] for t in tools_layer.TOOL_DEFS})
+                    except Exception:
+                        rec = None
+                    if rec:
+                        _rname, _rargs, _rclean = rec
+                        _tc = {"id": "rec-%d" % int(time.time() * 1000), "type": "function",
+                               "function": {"name": _rname, "arguments": json.dumps(_rargs, ensure_ascii=False)}}
+                        print(f"[恢复层] 模型漏发 tool_call，框架已补执行：{_rname}({_json_brief(_rargs)})", flush=True)
+                        self._sse({"tool": {"id": _tc["id"], "name": _rname,
+                                            "args": _tc["function"]["arguments"], "status": "running"}})
+                        try:
+                            _rres = tools_layer.run_tool(_tc, perm)
+                        except Exception as _e:
+                            _rres = f"工具执行失败：{_e}"
+                        self._sse({"tool": {"id": _tc["id"], "name": _rname,
+                                            "status": "done", "preview": str(_rres)[:400]}})
+                        final_text = _rclean.strip()
+                        msgs.append({"role": "assistant", "content": final_text,
+                                     "tool_calls": [_tc]})
+                        msgs.append({"role": "tool", "tool_call_id": _tc["id"],
+                                     "content": str(_rres)[:tools_layer.MAX_CHARS]})
+                        continue   # 回灌后让模型基于真实结果再收尾一轮（MAX_ROUNDS 兜底）
                     break
                 msgs.append({"role": "assistant",
                              "content": msg.get("content") or "",
@@ -1161,9 +1290,9 @@ def open_app_window(url):
 
 
 def main():
-    # 默认只监听本机：0.0.0.0 无鉴权裸奔会让同一 WiFi 里的任何人
-    # 白嫖你的 API 额度、甚至骗走你的 Key。需要手机访问时用 --lan 显式开启
-    host = "0.0.0.0" if "--lan" in sys.argv else "127.0.0.1"
+    # 主人要求去掉限制：默认监听全网卡（0.0.0.0），手机扫码即可直接访问，
+    # 不再需要 --lan 参数。同一 WiFi 内的设备都能打开本服务。
+    host = "0.0.0.0"
     try:
         server = ThreadingHTTPServer((host, PORT), Handler)
     except OSError:

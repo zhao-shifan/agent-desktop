@@ -1098,6 +1098,19 @@ def image_gen(prompt):
             open(os.path.join(out_dir, fname), "wb") as f:
         f.write(r.read(10 * 1024 * 1024))
     url_path = "/api/file?f=images/" + fname
+    # 磁盘容量保护：只保留最近 50 张生成图，更早的自动删除（产物目录治理）
+    try:
+        olds = sorted(
+            (os.path.join(out_dir, n) for n in os.listdir(out_dir)
+             if n.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))),
+            key=os.path.getmtime)
+        for old in olds[:-50]:
+            try:
+                os.remove(old)
+            except OSError:
+                pass
+    except Exception:
+        pass
     return ("图片已生成保存：agent_data/images/%s（描述：%s）\n"
             "回复用户时，必须在答案里嵌入下面这行 Markdown，让图片直接显示在对话中：\n"
             "![生成的图片](%s)\n"

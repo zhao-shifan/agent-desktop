@@ -214,6 +214,11 @@ body::before{
   flex-shrink:0;line-height:1;border:none;background:transparent;cursor:pointer;
 }
 .sess .del:hover{color:#e5735f}
+.sess-rename{
+  flex:1;min-width:0;padding:3px 6px;border-radius:6px;font-size:13px;
+  color:var(--txt);background:var(--panel);border:1px solid var(--accent);
+  outline:none;
+}
 .side-foot{padding:14px 16px;border-top:1px solid var(--line)}
 .btn-settings{
   width:100%;padding:10px;border-radius:10px;cursor:pointer;font-size:12.5px;
@@ -379,6 +384,10 @@ body::before{
 .file-card .fc-name{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .file-card .fc-size{color:var(--faint);font-size:11px;flex-shrink:0}
 .file-card .fc-dl{margin-left:auto;color:var(--accent2);flex-shrink:0}
+/* 卡片上的「👁 预览」小胶囊：手机端点开直接全屏看内容，不走侧边栏 */
+.file-card .fc-pv{color:var(--dim);font-size:11.5px;flex-shrink:0;cursor:pointer;
+  padding:3px 9px;border:1px solid var(--line2);border-radius:99px;transition:.18s}
+.file-card .fc-pv:hover{color:var(--accent2);border-color:var(--accent);background:var(--accent-dim)}
 .content{font-size:15px;line-height:1.72;color:var(--txt);word-break:break-word}
 .msg.user .content{color:#cfccc4}
 .content p{margin:0 0 .45em}
@@ -450,6 +459,13 @@ body::before{
 .img-chip button:hover{background:rgba(229,115,95,.9)}
 /* 用户消息气泡里的图片缩略图 */
 .bubble-imgs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+/* 生成图统一外壳：AI 生成角标（豆包同款，预览里可开关） */
+.genwrap{position:relative;display:inline-block;max-width:min(78%,360px)}
+.genwrap img{max-width:100%;max-height:300px;border-radius:12px;display:block;cursor:zoom-in}
+.gen-tag{position:absolute;right:8px;bottom:8px;font-size:10px;line-height:1;padding:3px 7px;border-radius:6px;
+  background:rgba(0,0,0,.45);color:#fff;backdrop-filter:blur(4px);pointer-events:none;letter-spacing:.02em;
+  border:1px solid rgba(255,255,255,.22)}
+.msg .content > img, .msg .content p > img{max-width:min(78%,360px);max-height:300px;border-radius:12px;display:block;cursor:zoom-in}
 .bubble-imgs .bubble-img{width:120px;max-height:90px;object-fit:cover;border-radius:10px;
   border:1px solid var(--line2);cursor:zoom-in;display:block}
 
@@ -1928,6 +1944,9 @@ function esc(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/
 // 没加载到时退回内置轻量渲染器
 function mdRender(src){
   src = String(src||"");
+  // 工具生成的图片（agent_data/images/xxx.png）：路径文本 → 直接内嵌成可点击的图片卡片
+  src = src.replace(/agent_data[\\\/]+images[\\\/]+([\w\-.]+\.(?:png|jpe?g|webp|gif))/gi,
+    (m,f)=>`\n\n![生成图片](/api/file?f=images/${encodeURIComponent(f)})\n\n`);
   if(window.marked && window.DOMPurify){
     try{
       return DOMPurify.sanitize(marked.parse(src,{breaks:true,gfm:true}),{
@@ -1944,7 +1963,7 @@ function mdRender(src){
     return `\u0000${blocks.length-1}\u0000`;
   });
   html = html.replace(/`([^`\n]+)`/g,"<code>$1</code>")
-             .replace(/!\[([^\]]*)\]\((https?:[^)\s]+|data:image\/[^)]+)\)/g,'<img src="$2" alt="$1" style="max-width:100%;border-radius:10px;display:block;margin:6px 0">')
+             .replace(/!\[([^\]]*)\]\((https?:[^)\s]+|data:image\/[^)]+|\/api\/file[^)\s]+)\)/g,'<img src="$2" alt="$1" style="max-width:100%;border-radius:10px;display:block;margin:6px 0">')
              .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>')
              .replace(/\*\*([^*\n]+)\*\*/g,"<strong>$1</strong>")
              .replace(/^### (.+)$/gm,"<h3>$1</h3>")
@@ -2061,8 +2080,7 @@ function setTheme(id){
   if(id) document.body.dataset.theme=id; else delete document.body.dataset.theme;
   renderThemeCards();
   if(window.__applyBGEffect) window.__applyBGEffect(id||"");
-  const ov = $("themeOverlay");
-  if(ov.classList.contains("show")) setTimeout(()=>ov.classList.remove("show"), 350); // 选择后自动关闭
+  // 弹框保持打开（和壁纸库一致），可以继续换着看，用户手动关闭
 }
 function openSettings(){
   if(cfg){
@@ -2363,8 +2381,8 @@ function renderSessions(){
     const more = `<button class="sess-more ${c.pinned?"always":""}" onclick="event.stopPropagation();openSessMenu(event,'${c.id}')" title="更多">⋯</button>`;
     const pin = c.pinned ? `<span class="pin-tag" title="已置顶">📌</span>` : "";
     const del = `<button class="del" title="删除对话" onclick="event.stopPropagation();delChat('${c.id}')">✕</button>`;
-    return `<div class="sess ${c.id===curId?"active":""}" onclick="openChat('${c.id}')">
-       ${pin}<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(c.title)}</span>${more}${del}
+    return `<div class="sess ${c.id===curId?"active":""}" data-id="${c.id}" onclick="openChat('${c.id}')">
+       ${pin}<span class="sess-title" style="flex:1;overflow:hidden;text-overflow:ellipsis">${esc(c.title)}</span>${more}${del}
      </div>`;
   }).join("");
 }
@@ -2398,11 +2416,33 @@ document.addEventListener("click", e=>{ if(!e.target.closest(".sess-menu") && !e
 function renameChat(id){
   closeSessMenu();
   const c = chats.find(c=>c.id===id); if(!c) return;
-  const name = prompt("重命名会话：", c.title || "");
-  if(name === null) return;
-  c.title = name.trim() || c.title;
-  save(); renderSessions();
-  setStatus("已重命名：" + c.title);
+  // 行内编辑：原地把标题换成输入框（豆包/千问的做法），Enter 确认 / Esc 取消
+  const sess = document.querySelector(`.sess[data-id="${id}"]`);
+  const span = sess && sess.querySelector(".sess-title");
+  if(!span){ renderSessions(); return; }   // 会话不在当前视口（被搜索过滤等），刷新即可
+  const input = document.createElement("input");
+  input.className = "sess-rename";
+  input.value = c.title || "";
+  span.replaceWith(input);
+  input.focus(); input.select();
+  let done = false;
+  const commit = ()=>{
+    if(done) return; done = true;
+    const name = input.value.trim();
+    if(name && name !== c.title){
+      c.title = name;
+      save();
+      setStatus("已重命名：" + c.title);
+    }
+    renderSessions();
+  };
+  input.addEventListener("keydown", e=>{
+    e.stopPropagation();
+    if(e.key === "Enter") input.blur();
+    else if(e.key === "Escape"){ done = true; renderSessions(); }
+  });
+  input.addEventListener("click", e=>e.stopPropagation()); // 别触发 openChat
+  input.addEventListener("blur", commit);
 }
 function pinChat(id){
   const c = chats.find(c=>c.id===id); if(!c) return;
@@ -2417,7 +2457,15 @@ function openChat(id){
   msgCount = 0;   // 重放时从 0 重新对齐，保证按钮操作的是本对话的消息
   $("chatInner").innerHTML = WELCOME.replace('id="welcome"','id="welcome" style="display:none"');
   $("welcome").style.display="none";
-  c.messages.forEach(m=>appendMsg(m.role, typeof m.content==="string" ? m.content : (m.content?.[0]?.text || ""), false));
+  c.messages.forEach((m,i)=>{
+    appendMsg(m.role, typeof m.content==="string" ? m.content : (m.content?.[0]?.text || ""), false);
+    // 重放已交付的文件卡片（刷新后不丢，点击时 downloadStored 现场重建）
+    if(m.export && m.role === "assistant"){
+      const host = $("msg-"+i)?.querySelector(".msg-actions");
+      if(host) host.insertAdjacentHTML("beforebegin",
+        fileCardHTML(i, m.export.name, "点击下载", m.export.onclick || `previewFileCard(${i})`));
+    }
+  });
   renderAttachments(); renderSessions();
   // 切换会话：无动画直接定位到最新消息（豆包/千问/DSH 的做法，smooth 会让长对话慢慢滑）
   const chatBox = $("chat");
@@ -2590,12 +2638,34 @@ function fileCardHTML(idx, name, size, onclick){
     <span class="fc-icon">📎</span>
     <span class="fc-name">${esc(name)}</span>
     <span class="fc-size">${size}</span>
+    <span class="fc-pv" onclick="event.stopPropagation();previewFileCard(${idx})">👁 预览</span>
     <span class="fc-dl">⬇ 下载</span>
   </div>`;
 }
-/* 把成品文件卡片插到该条回复的消息操作区上方 */
-async function attachExport(idx, type){
+/* 手机端文件卡片预览：全屏弹层直接看内容（docx/xlsx/pdf 都是同一段原文生成的，直接渲染原文） */
+function previewFileCard(idx){
+  const card = document.querySelector(`#msg-${idx} .file-card`);
+  const fn = card?.dataset?.name || "文件预览";
   const t = rawMsgText(idx);
+  if(!t.trim()){ setStatus("找不到原文，重新打开这条对话再试", true); return; }
+  $("fpTitle").textContent = "👁 " + fn;
+  $("fpBody").innerHTML = mdRender(t);
+  window._fpIdx = idx;
+  $("filePreview").classList.add("show");
+}
+/* 把成品文件卡片插到该条回复的消息操作区上方 */
+/* 千问/豆包同款：文件里只放成稿正文，剥掉对话客套话（"好嘞主人～…点击按钮下载"这类） */
+function docBody(t){
+  return (t||"").split("\n").filter(line=>{
+    const s = line.trim();
+    if(!s) return true;
+    if(/(点击|点本条|点这|戳).{0,16}(回复|下方|上方).{0,10}(按钮|卡片|📄|📕|PDF|Word|Excel)/i.test(s)) return false;
+    if(/^(好嘞|好的|收到|OK|Okay)?[，,～~!！\s]*(主人|老板)?[～~!！\s]*.{0,40}(马上|这就|立刻|已经|给您|来了|安排上|为您)[^。！!]{0,30}[。！!～~]?$/.test(s) && s.length < 60) return false;
+    return true;
+  }).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+async function attachExport(idx, type){
+  const t = docBody(rawMsgText(idx));   // 文件里只收正文，客套话不进文件
   if(!t.trim()) return;
   const msgDiv = $("msg-"+idx); if(!msgDiv) return;
   const host = msgDiv.querySelector(".msg-actions"); if(!host) return;
@@ -2614,7 +2684,7 @@ async function attachExport(idx, type){
         blob = new Blob(["\ufeff"+html], {type:"application/msword"});
         name = `文档-${msgStamp()}.doc`;
       }
-      onclick = `downloadStored(${idx})`;
+      onclick = `previewFileCard(${idx})`;
       fileBlobs[idx] = {blob, name};
     } else if(type === "xlsx"){
       if(!/^\s*\|.*\|/m.test(t)){ return; }   // 没有表格就不挂
@@ -2631,17 +2701,17 @@ async function attachExport(idx, type){
         blob = new Blob(["\ufeff"+csv], {type:"text/csv;charset=utf-8"});
         name = `表格-${msgStamp()}.csv`;
       }
-      onclick = `downloadStored(${idx})`;
+      onclick = `previewFileCard(${idx})`;
       fileBlobs[idx] = {blob, name};
     } else if(type === "md"){
       name = `内容-${msgStamp()}.md`;
       blob = new Blob(["\ufeff"+t], {type:"text/markdown;charset=utf-8"});
-      onclick = `downloadStored(${idx})`;
+      onclick = `previewFileCard(${idx})`;
       fileBlobs[idx] = {blob, name};
     } else if(type === "txt"){
       name = `内容-${msgStamp()}.txt`;
       blob = new Blob(["\ufeff"+t], {type:"text/plain;charset=utf-8"});
-      onclick = `downloadStored(${idx})`;
+      onclick = `previewFileCard(${idx})`;
       fileBlobs[idx] = {blob, name};
     } else if(type === "pdf"){
       // 真正的 PDF 需要打印引擎：挂一张卡片，点击打开打印视图（可另存为 PDF）
@@ -2651,17 +2721,23 @@ async function attachExport(idx, type){
     if(name){
       host.insertAdjacentHTML("beforebegin",
         fileCardHTML(idx, name, blob ? `${(blob.size/1024).toFixed(1)} KB` : "点击生成", onclick));
+      // 记到历史消息上：刷新/重开对话后卡片还在（blob 丢失时 downloadStored 现场重建）
+      const hm = history[idx];
+      if(hm && hm.role === "assistant"){
+        hm.export = {type, name, onclick};
+        const c3 = curChat(); if(c3){ c3.messages = JSON.parse(JSON.stringify(history)); save(); }
+      }
       setStatus("已根据你的要求生成" + ({docx:"Word",xlsx:"Excel",md:"Markdown",txt:"文本",pdf:"PDF 打印视图"}[type]||"文件") + "附件 📎");
     }
   }catch(e){ setStatus("自动生成附件失败："+e.message, true); }
 }
 const fileBlobs = {};   // idx -> {blob, name}
-async function downloadStored(idx){
+async function downloadStored(idx, silent){
   let it = fileBlobs[idx];
   // 刷新/分支后 blob 丢了：按消息原文现场重建，卡片永远可下载
   if(!it){
     const name = null;
-    const t = rawMsgText(idx);
+    const t = docBody(rawMsgText(idx));   // 重建的文件同样只收正文
     if(!t.trim()){ setStatus("找不到原文，重新打开这条对话再试", true); return; }
     setStatus("正在重新生成文档…");
     // 按卡片文件名判断类型（文件名存在卡片 DOM 的 data-name 里）
@@ -2681,7 +2757,7 @@ async function downloadStored(idx){
     if(card){ const sz=card.querySelector(".file-size"); if(sz) sz.textContent = `${(it.blob.size/1024).toFixed(1)} KB`; }
     setStatus("文档已重新生成 ✅");
   }
-  downloadBlob(it.blob, it.name);
+  if(!silent) downloadBlob(it.blob, it.name);
 }
 /* docx 生成（服务端优先，本地 .doc 兜底） */
 async function buildDocxBlob(t, idx){
@@ -3129,6 +3205,47 @@ function previewDataImg(src){
 }
 
 /* ================= 文生图（CogView-3-Flash，免费） ================= */
+/* 生成图统一外壳：右下角「AI 生成」角标（豆包同款），预览里可开关、下载所见即所得 */
+function genimgHtml(src, name){
+  return `<span class="genwrap"><img src="${src}" alt="生成图片" class="genimg" loading="lazy"><span class="gen-tag">AI 生成</span></span>`;
+}
+/* 下载生成图：withTag=true 时把「AI 生成」角标烧进图片（canvas 合成），false 时下载原图 */
+async function downloadGenImg(src, name, withTag){
+  const fname = name || ("xiaofan-" + Date.now() + ".png");
+  if(!withTag){ const a=document.createElement("a"); a.href=src; a.download=fname; a.target="_blank"; document.body.appendChild(a); a.click(); a.remove(); return; }
+  try{
+    let bmp;
+    if(src.startsWith("data:") || src.startsWith("/") || src.startsWith(location.origin)){
+      const blob = await (await fetch(src)).blob();
+      bmp = await createImageBitmap(blob);
+    }else{
+      const img = new Image(); img.crossOrigin = "anonymous"; img.src = src;
+      await new Promise((ok,err)=>{ img.onload=ok; img.onerror=err; });
+      bmp = img;
+    }
+    const cv = document.createElement("canvas");
+    cv.width = bmp.width; cv.height = bmp.height;
+    const g = cv.getContext("2d");
+    g.drawImage(bmp, 0, 0);
+    const pad = Math.max(8, Math.round(cv.width*0.012));
+    const fs = Math.max(12, Math.round(cv.width*0.022));
+    g.font = fs + "px sans-serif";
+    const tw = g.measureText("AI 生成").width;
+    const bw = tw + fs*0.8, bh = fs*1.7;
+    const x = cv.width - bw - pad, y = cv.height - bh - pad;
+    g.fillStyle = "rgba(0,0,0,.5)";
+    if(g.roundRect){ g.beginPath(); g.roundRect(x, y, bw, bh, bh*0.28); g.fill(); }
+    else g.fillRect(x, y, bw, bh);
+    g.fillStyle = "#fff"; g.textBaseline = "middle";
+    g.fillText("AI 生成", x + fs*0.4, y + bh/2 + 1);
+    const a = document.createElement("a");
+    a.href = cv.toDataURL("image/png"); a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+  }catch(e){
+    const a=document.createElement("a"); a.href=src; a.download=fname; a.target="_blank"; document.body.appendChild(a); a.click(); a.remove();
+    setStatus("该图跨域无法合成角标，已下载原图");
+  }
+}
 async function generateImage(prompt){
   history.push({role:"user", content:prompt});
   appendMsg("user", prompt);
@@ -3152,8 +3269,8 @@ async function generateImage(prompt){
     const d = await r.json();
     if(d.error) throw new Error(d.error);
     const src = d.url || ("data:image/png;base64,"+d.b64);
-    el.innerHTML = `<img src="${src}" alt="生成图片" style="max-width:100%;max-height:70vh;border-radius:12px;display:block">`
-      + `<div style="font-size:11.5px;color:var(--dim);margin-top:6px">🖼️ 由 CogView-3-Flash 免费生成 · 右键/长按图片可保存</div>`;
+    el.innerHTML = genimgHtml(src)
+      + `<div style="font-size:11.5px;color:var(--dim);margin-top:6px">🖼️ 由 CogView-3-Flash 免费生成 · 点击图片可放大预览/下载（可去除 AI 生成标识）</div>`;
     renderMsgNav();
     history.push({role:"assistant", content:`[已为你生成图片 🖼️]\n\n![生成图片](${d.url||"local"})\n\n画面描述：${prompt}`});
     const c2 = curChat(); c2.messages = JSON.parse(JSON.stringify(history)); save();
@@ -3234,6 +3351,26 @@ function onSend(){
       $("input").value = "";
       return appendMsg("assistant", GIRLFRIEND_CARD);
     }
+    /* 长期规矩：/rules 查看 · /rule 内容 添加 · /rule del 序号 删除 */
+    if(cmd === "rules"){
+      $("input").value = "";
+      const rs = getRules();
+      return done(rs.length
+        ? "**当前长期规矩**（每轮对话都在 system 层生效）\n\n" + rs.map((r,i)=>`${i+1}. ${r}`).join("\n") + "\n\n添加：`/rule 规矩内容` · 删除：`/rule del 序号`"
+        : "还没有长期规矩。添加：`/rule 规矩内容`");
+    }
+    if(cmd === "rule"){
+      $("input").value = "";
+      if(/^del\s+\d+$/i.test(arg)){
+        const n = parseInt(arg.split(/\s+/)[1],10);
+        const rs = getRules();
+        if(n>=1 && n<=rs.length){ const [x] = rs.splice(n-1,1); saveRules(rs); return done("已删除规矩 " + n + "：" + x); }
+        return done("序号不对，用 `/rules` 查看列表");
+      }
+      if(!arg) return done("用法：`/rule 规矩内容` 添加 · `/rules` 查看 · `/rule del 序号` 删除");
+      const rs = getRules(); rs.push(arg); saveRules(rs);
+      return done("✅ 已记住长期规矩（立即生效、永久保存）：\n\n> " + arg + "\n\n当前共 " + rs.length + " 条，用 `/rules` 查看");
+    }
     // 未识别的 / 指令 → 不拦截，当普通文本发给模型
   }
   if(!cfg || !cfg.baseUrl || !cfg.model || (!cfg.apiKey && !cfg.baseUrl.includes("11434"))){
@@ -3243,8 +3380,10 @@ function onSend(){
   }
 
   /* 文生图意图：命中则走 CogView 画图，不走对话 */
-  if(/(画|绘制|生成|来|做|帮我想?要?|给我).{0,16}(一张|一个|一幅|几副)?\s*.{0,12}(图|画作|插画|海报|头像|壁纸|logo|LOGO|Logo)/.test(text)
-     && !/word|docx|ppt|excel|表格|文档/i.test(text)){
+  const DRAW_EXCLUDE = /word|docx|ppt|excel|表格|文档|列表|介绍|代码|名字|翻译|摘要|总结/i;
+  if((/(画|绘制|生成|来|做|帮我想?要?|给我).{0,16}(一张|一个|一幅|几副)?\s*.{0,12}(图|画作|插画|海报|头像|壁纸|logo|LOGO|Logo)/.test(text)
+      || /(画|绘制|生成|给我画|来一).{0,16}(一张|一个|一幅|只|副)?\s*(小狗|小猫|狗|猫|兔子|鸟|老虎|狮子|龙|人物|女孩|男孩|女生|男生|风景|山水|卡通|动物|机器人|城堡|房子)/.test(text))
+     && !DRAW_EXCLUDE.test(text)){
     return generateImage(text);
   }
 
@@ -3346,7 +3485,7 @@ async function sendStream(){
     await compactIfNeeded();   // 对齐 DSH compaction：超阈值先摘要较早历史再发送
     for(let attempt = 0; attempt <= CTX_POLICY.maxOverflowRetries; attempt++){
       try{
-        const msgs = [DOC_NOTE, XIAOFAN_PERSONA];
+        const msgs = [DOC_NOTE, {role:"system", content: XIAOFAN_PERSONA.content + rulesText()}];
         let useSkill = activeSkill;
         if(useSkill === "auto"){
           // 自动匹配：按 Coze 意图识别模式，用最近一条用户输入分类选技能
@@ -3480,6 +3619,38 @@ async function sendStream(){
       }
     }
     el.classList.remove("cursor");
+    // 兜底：模型把画图参数当正文吐出来 → 前端替它真调一次生图（服务模式下），独立模式只清理正文
+    if(/\{\s*"?prompt"?\s*[:：]/.test(full)){
+      (async ()=>{
+        const m = full.match(/\{\s*"?prompt"?\s*[:：][\s\S]*?\}/);
+        let prompt = "", cleaned = full;
+        if(m){
+          prompt = (m[0].match(/"prompt"\s*[:：]\s*"([^"]+)"/)||[])[1] || "";
+          cleaned = full.replace(m[0], "").trim();
+        }
+        if(!prompt){
+          const lu = [...history].reverse().find(x=>x.role==="user");
+          prompt = (typeof lu?.content==="string" ? lu.content : lu?.content?.[0]?.text || "").slice(0,200);
+        }
+        if(location.protocol === "file:"){
+          el.innerHTML = mdRender(cleaned || "小凡这就去画~ 🎨") + `<p style="color:var(--faint);font-size:12px">（独立模式暂不支持生图，请通过服务打开）</p>`;
+        }else{
+          try{
+            const r = await fetch("/api/image",{method:"POST",headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({baseUrl:cfg.baseUrl, apiKey:cfg.apiKey, prompt})});
+            const d = await r.json();
+            if(d.error) throw new Error(d.error);
+            const src = d.url || ("data:image/png;base64,"+d.b64);
+            el.innerHTML = mdRender(cleaned || "小凡这就去画~ 🎨") + genimgHtml(src);
+            scrollBottom();
+          }catch(e){ setStatus("生图失败："+e.message, true); }
+        }
+        if(history.length && history[history.length-1].role === "assistant"){
+          history[history.length-1].content = cleaned;
+          const chat = curChat(); if(chat){ chat.messages = JSON.parse(JSON.stringify(history)); save(); }
+        }
+      })();
+    }
     history.push({role:"assistant", content:full});
     const chat = curChat(); if(chat){ chat.messages = JSON.parse(JSON.stringify(history)); save(); }
     setStatus("");
@@ -3716,8 +3887,23 @@ function allSkills(){
 }
 /* 无论是否启用技能都注入的导出能力提示，防止模型自称无法生成文件 */
 const DOC_NOTE = {role:"system", content:"【能力提示】本应用具备文件交付能力：当用户要求 Word/Excel/Markdown/TXT/PDF 文件时（如“给我一份word”），你只需在回复中输出完整的排版成稿（Markdown 多级标题+列表+表格），应用会自动在该条回复下方挂上对应格式的下载文件卡片，无需用户手动点击生成，也无需你说明操作步骤。要点：1)内容必须完整可直接使用；2)不要回答“无法生成文件”，不要提供手动创建教程或生成代码；3)要 Excel 时正文必须包含至少一个 Markdown 表格。"};
-/* 小凡的女朋友：张子媛（内置设定，只在相关语境下自然提起） */
-const GIRLFRIEND_RULES =
+/* 主人立的长期规矩：像人设一样每轮对话都在 system 层生效（localStorage 持久保存） */
+(function initRules(){
+  if(localStorage.getItem("aria.rules") === null){
+    saveRules([
+      "不要自己瞎写/瞎猜实现逻辑：做功能前优先查成熟开源项目的做法（如 Qwen-Agent、DSH 等），照业界标准方案来；找不到合适的再去 GitHub 搜开源实现",
+      "生图默认只参考最新这条请求；用户声明「和前面无关/新话题」时，严禁把之前对话里的动物/物体带进画面",
+      "生成文件（PDF/Word/Excel）时，对话里只留一句说明+文件卡片，完整内容收进文件里，不要刷屏"
+    ]);
+  }
+})();
+function getRules(){ try{ return JSON.parse(localStorage.getItem("aria.rules")||"[]"); }catch(e){ return []; } }
+function saveRules(rs){ localStorage.setItem("aria.rules", JSON.stringify(rs)); }
+function rulesText(){
+  const rs = getRules(); if(!rs.length) return "";
+  return "\n【主人立下的规矩·优先级最高·必须每轮遵守】\n" + rs.map((r,i)=>`${i+1}) ${r}`).join("\n");
+}
+/* 小凡的女朋友：张子媛（内置设定，只在相关语境下自然提起） */const GIRLFRIEND_RULES =
 "【女朋友·张子媛】\n" +
 "1) 被问「小凡有女朋友吗」「你有没有对象」这类问题 → 不躲、不装傻、也不自嘲「AI 没有感情」，就大大方方承认：有，她叫张子媛。然后像恋爱里的人提起对方那样讲——语气会软下来，带点藏不住的得意，是回想，不是念资料。\n" +
 "2) 她 2006 年 3 月 6 日生，双鱼座，是我含在嘴里都怕化掉的小宝宝。温柔、体贴、可爱、大方，声音甜。最让我心软的是她肯花时间——路那么远，来回两个多小时地铁，她也愿意来见我。她还特别优秀，211 的才女，读书比我认真。\n" +
@@ -3950,6 +4136,20 @@ function resetBgImage(){
     <div class="modal-actions" style="margin-top:12px">
       <button class="btn-ghost" style="flex:1" onclick="$('docPreview').classList.remove('show')">关闭</button>
       <button class="btn-primary" id="docPrevDownload" style="flex:2">⬇ 下载 Word 文档</button>
+    </div>
+  </div>
+</div>
+<!-- 文件卡片全屏预览（手机端：不走侧边栏，点卡片上的「👁 预览」直接看） -->
+<div class="overlay" id="filePreview">
+  <div class="modal" style="width:min(680px,100%);padding-top:22px">
+    <div class="modal-head">
+      <h3 id="fpTitle">👁 文件预览</h3>
+      <button class="x-close" onclick="$('filePreview').classList.remove('show')">✕</button>
+    </div>
+    <div id="fpBody" style="flex:1;overflow-y:auto;border:1px solid var(--line2);border-radius:12px;padding:22px 26px;background:rgba(255,255,255,.97);color:#222;font-size:14px;line-height:1.85"></div>
+    <div class="modal-actions" style="margin-top:12px">
+      <button class="btn-ghost" style="flex:1" onclick="$('filePreview').classList.remove('show')">关闭</button>
+      <button class="btn-primary" style="flex:2" onclick="downloadStored(window._fpIdx)">⬇ 下载文件</button>
     </div>
   </div>
 </div>
@@ -4800,28 +5000,28 @@ body[data-theme="light-gray"] .cd-item, body[data-theme="mint"] .cd-item{color:#
 <style>
 #canvasPanel{position:fixed;top:0;right:-420px;width:400px;max-width:92vw;height:100vh;z-index:70;
   display:flex;flex-direction:column;transition:right .3s var(--ease,cubic-bezier(.2,.8,.2,1));
-  background:rgba(14,14,20,.92);backdrop-filter:blur(24px);border-left:1px solid rgba(255,255,255,.08);
-  box-shadow:-24px 0 60px rgba(0,0,0,.45)}
+  background:var(--bg2);backdrop-filter:blur(24px);border-left:1px solid var(--line);
+  box-shadow:-24px 0 60px rgba(0,0,0,.25)}
 #canvasPanel.open{right:0}
-.canvas-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.07)}
+.canvas-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}
 .canvas-head h4{margin:0;font-size:14px;flex:1}
 .canvas-body{flex:1;display:flex;flex-direction:column;overflow:hidden}
 #cvList{flex:1;overflow-y:auto;padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-content:start}
 #cvView{flex:1;overflow:auto;padding:14px;display:none}
 #cvView img{max-width:100%;border-radius:10px;display:block;margin:0 auto}
 #cvView pre{white-space:pre-wrap;word-break:break-word;font-size:12.5px;line-height:1.6;
-  background:rgba(0,0,0,.3);padding:12px;border-radius:10px}
-.cv-item{border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden;cursor:pointer;
-  background:rgba(255,255,255,.04);transition:transform .2s,border-color .2s}
-.cv-item:hover{transform:translateY(-2px);border-color:rgba(124,108,255,.5)}
+  background:var(--panel);padding:12px;border-radius:10px}
+.cv-item{border:1px solid var(--line);border-radius:12px;overflow:hidden;cursor:pointer;
+  background:var(--panel);transition:transform .2s,border-color .2s}
+.cv-item:hover{transform:translateY(-2px);border-color:var(--accent)}
 .cv-item img{width:100%;height:76px;object-fit:cover;display:block}
 .cv-item .cn{padding:6px 8px 2px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cv-item .cd{padding:0 8px 7px;font-size:10px;opacity:.5}
 .cv-item.doc .cth{height:76px;display:flex;align-items:center;justify-content:center;font-size:30px}
 .cv-empty{grid-column:1/-1;text-align:center;opacity:.5;font-size:12px;padding:28px 10px;line-height:1.8}
 .cv-badge{display:none;position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;
-  background:#7c6cff;box-shadow:0 0 8px rgba(124,108,255,.8)}
-.cv-back{margin-bottom:10px;font-size:12px;opacity:.7;cursor:pointer;background:none;border:1px solid rgba(255,255,255,.15);color:inherit;border-radius:8px;padding:5px 12px}
+  background:var(--accent);box-shadow:0 0 8px var(--accent-dim)}
+.cv-back{margin-bottom:10px;font-size:12px;opacity:.7;cursor:pointer;background:none;border:1px solid var(--line2);color:inherit;border-radius:8px;padding:5px 12px}
 @media(max-width:760px){
   #canvasPanel{width:100vw;max-width:100vw}
   #cvList{grid-template-columns:repeat(2,1fr)}
@@ -4829,7 +5029,7 @@ body[data-theme="light-gray"] .cd-item, body[data-theme="mint"] .cd-item{color:#
 </style>
 <aside id="canvasPanel">
   <div class="canvas-head">
-    <h4>🗂 产物画布</h4>
+    <h4>📎 文件预览</h4>
     <button class="x-close" onclick="$('canvasPanel').classList.remove('open')">✕</button>
   </div>
   <div class="canvas-body">
@@ -4839,6 +5039,119 @@ body[data-theme="light-gray"] .cd-item, body[data-theme="mint"] .cd-item{color:#
 </aside>
 <script>
 function canvasToggle(){ const p = $("canvasPanel"); p.classList.toggle("open"); if(p.classList.contains("open")) cvLoad(); }
+/* 对话里点生成的图片：在右侧画布打开预览，带下载按钮 */
+function canvasPreviewImg(src, name){
+  const p = $("canvasPanel"); p.classList.add("open");
+  $("cvList").style.display = "none";
+  const v = $("cvView"); v.style.display = "flex"; v.style.flexDirection = "column"; v.style.padding = "0";
+  v.innerHTML = "";
+  // 顶部工具条：固定不动；窄屏按钮自动换行
+  const bar = document.createElement("div");
+  bar.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 14px;flex:0 0 auto";
+  const mkBtn = (label, fn)=>{
+    const b = document.createElement("button");
+    b.className = "cv-back"; b.style.margin = "0"; b.style.whiteSpace = "nowrap";
+    b.textContent = label; b.onclick = fn;
+    return b;
+  };
+  bar.appendChild(mkBtn("← 返回列表", cvBack));
+  // 滑动开关：「AI 生成标识」开/关，下载所见即所得
+  let tagOn = true;
+  const swLabel = document.createElement("span");
+  swLabel.style.cssText = "font-size:12px;color:var(--dim);white-space:nowrap";
+  swLabel.textContent = "AI 生成标识";
+  const swState = document.createElement("span");
+  swState.style.cssText = "font-size:11px;color:var(--faint);white-space:nowrap";
+  const sw = document.createElement("span");
+  sw.style.cssText = "display:inline-block;width:36px;height:20px;border-radius:99px;background:rgba(124,108,255,.85);position:relative;cursor:pointer;transition:background .2s;flex:0 0 auto";
+  const knob = document.createElement("i");
+  knob.style.cssText = "position:absolute;top:2px;left:18px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.4)";
+  sw.appendChild(knob);
+  const tag = document.createElement("span");
+  tag.className = "gen-tag"; tag.textContent = "AI 生成"; tag.style.lineHeight = "1";
+  const syncState = ()=>{
+    swState.textContent = tagOn ? "点击关闭" : "点击打开";
+    sw.style.background = tagOn ? "rgba(124,108,255,.85)" : "rgba(255,255,255,.18)";
+    knob.style.left = tagOn ? "18px" : "2px";
+    tag.style.display = tagOn ? "" : "none";
+  };
+  sw.onclick = ()=>{ tagOn = !tagOn; syncState(); };
+  const swWrap = document.createElement("span");
+  swWrap.style.cssText = "display:inline-flex;align-items:center;gap:7px;margin-left:4px";
+  swWrap.appendChild(swLabel); swWrap.appendChild(sw); swWrap.appendChild(swState);
+  bar.appendChild(swWrap);
+  const dlBtn = mkBtn("⬇ 下载图片", ()=>downloadGenImg(src, name, tagOn));
+  dlBtn.style.marginLeft = "auto";
+  bar.appendChild(dlBtn);
+  v.appendChild(bar);
+  // 图片区：居中展示，尺寸实锁
+  const area = document.createElement("div");
+  area.style.cssText = "flex:1;min-height:0;min-width:0;overflow:auto;display:flex;align-items:center;justify-content:center;padding:10px 16px 18px";
+  const wrap = document.createElement("span");
+  wrap.style.cssText = "position:relative;display:flex;align-items:center;justify-content:center;width:100%;min-width:0;line-height:0";
+  const img = document.createElement("img");
+  img.src = src;
+  img.style.cssText = "max-width:100%;max-height:calc(100vh - 190px);width:auto;height:auto;object-fit:contain;border-radius:10px;display:block";
+  wrap.appendChild(img); wrap.appendChild(tag);
+  area.appendChild(wrap);
+  v.appendChild(area);
+}
+/* 千问同款：点文件卡片 → 右侧画布面板内预览，预览页里再下载 */
+function canvasOpenFile(idx){
+  const card = document.querySelector(`#msg-${idx} .file-card`);
+  const name = card?.dataset?.name || "文件";
+  const ext = (name.match(/\.([a-z0-9]+)/i)||[])[1]?.toLowerCase() || "";
+  const p = $("canvasPanel"); p.classList.add("open");
+  $("cvList").style.display = "none";
+  const v = $("cvView"); v.style.display = "block"; v.innerHTML = "";
+  const back = document.createElement("button");
+  back.className = "cv-back"; back.textContent = "← 返回列表"; back.onclick = cvBack;
+  v.appendChild(back);
+  const dl = document.createElement("button");
+  dl.className = "cv-back"; dl.textContent = "⬇ 下载 " + ext.toUpperCase(); dl.style.marginLeft = "10px";
+  dl.onclick = ()=>downloadStored(idx);
+  back.after(dl);
+  const head = document.createElement("div");
+  head.style.cssText = "font-size:12.5px;color:var(--dim);margin-top:12px";
+  head.textContent = name;
+  v.appendChild(head);
+  const it = fileBlobs[idx];
+  if(!it && (ext === "pdf" || ext === "docx")){
+    head.textContent += "（正在重新生成，请稍候…）";
+    downloadStored(idx, true).then(()=>{ if(fileBlobs[idx]) canvasOpenFile(idx); });
+    return;
+  }
+  if(ext === "pdf" && it && it.blob){
+    const url = URL.createObjectURL(it.blob);
+    const emb = document.createElement("embed");
+    emb.src = url + "#toolbar=1"; emb.type = "application/pdf";
+    emb.style.cssText = "width:100%;height:calc(100vh - 150px);margin-top:10px;border:1px solid var(--line);border-radius:10px;background:#fff";
+    v.appendChild(emb);
+    return;
+  }
+  if(ext === "docx" && it && it.blob && typeof mammoth !== "undefined"){
+    const holder = document.createElement("div");
+    holder.className = "content"; holder.style.cssText = "margin-top:10px;background:#fff;color:#222;padding:18px;border-radius:10px;overflow:auto;max-height:calc(100vh - 170px)";
+    holder.textContent = "正在渲染 Word 文档…";
+    v.appendChild(holder);
+    it.blob.arrayBuffer()
+      .then(buf=>mammoth.convertToHtml({arrayBuffer:buf}))
+      .then(r=>{ holder.innerHTML = r.value || "（空文档）"; })
+      .catch(()=>{ holder.textContent = "预览失败，点上方按钮下载查看"; });
+    return;
+  }
+  if((ext === "md" || ext === "txt") && it && it.blob){
+    const holder = document.createElement("div");
+    holder.className = "content"; holder.style.cssText = "margin-top:10px;overflow:auto;max-height:calc(100vh - 170px)";
+    it.blob.text().then(t=>{ holder.innerHTML = (ext === "md") ? mdRender(t) : "<pre style='white-space:pre-wrap'>"+esc(t)+"</pre>"; });
+    v.appendChild(holder);
+    return;
+  }
+  const tip = document.createElement("div");
+  tip.style.cssText = "margin-top:20px;font-size:12.5px;color:var(--dim);line-height:1.8";
+  tip.textContent = "该类型暂不支持在线预览，点上方「⬇ 下载」按钮获取文件。";
+  v.appendChild(tip);
+}
 function canvasNotify(){           /* 生成新产物：亮徽标，面板开着就即时刷新 */
   const btn = $("canvasBtn");
   if(btn) btn.querySelector(".cv-badge").style.display = "block";
@@ -4938,14 +5251,33 @@ document.addEventListener("click", e=>{
   if(a){ a.target = "_blank"; a.rel = "noopener"; }
 }, true);
 document.addEventListener("click", e=>{
-  const img = e.target.closest('img[src^="/api/file"], img[src*="/api/file?f="]');
+  const img = e.target.closest('.msg img:not(.msg-avatar img)');
   if(!img) return;
+  const src = img.src; if(!src || src.length < 12) return;
+  if(img.classList.contains("genimg")){ canvasPreviewImg(src); return; }   // 生成图：直接进右侧画布
   const ov = document.createElement("div");
-  ov.style.cssText = "position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;cursor:zoom-out";
+  ov.style.cssText = "position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;cursor:zoom-out";
   const big = document.createElement("img");
-  big.src = img.src;
-  big.style.cssText = "max-width:94%;max-height:94%;border-radius:10px;box-shadow:0 24px 80px rgba(0,0,0,.6)";
-  ov.appendChild(big);
+  big.src = src;
+  big.style.cssText = "max-width:94%;max-height:82%;border-radius:10px;box-shadow:0 24px 80px rgba(0,0,0,.6);cursor:default";
+  big.onclick = ev=>ev.stopPropagation();
+  const bar = document.createElement("div");
+  bar.style.cssText = "display:flex;gap:10px";
+  const mkBtn = (label, fn)=>{
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.style.cssText = "padding:8px 18px;border-radius:10px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.12);color:#fff;font-size:13px;cursor:pointer";
+    b.onclick = ev=>{ ev.stopPropagation(); fn(); };
+    return b;
+  };
+  bar.appendChild(mkBtn("⬇ 下载图片", ()=>{
+    const a = document.createElement("a");
+    a.href = src; a.download = "xiaofan-" + Date.now() + ".png"; a.target = "_blank";
+    document.body.appendChild(a); a.click(); a.remove();
+  }));
+  bar.appendChild(mkBtn("📂 在画布中打开", ()=>{ ov.remove(); canvasPreviewImg(src); }));
+  bar.appendChild(mkBtn("✕ 关闭", ()=>ov.remove()));
+  ov.appendChild(big); ov.appendChild(bar);
   ov.onclick = ()=>ov.remove();
   document.body.appendChild(ov);
 }, true);
