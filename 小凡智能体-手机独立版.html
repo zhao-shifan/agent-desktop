@@ -975,6 +975,7 @@ body:has(.sidebar.open) #sbScrim{display:block}
 <script src="./marked.min.js"></script>
 <script src="./purify.min.js"></script>
 <script src="./qrcode.js"></script>
+<script src="./mcp_catalog.js"></script>
 <script src="./config.local.js"></script>
 <script src="./official_skills.js"></script>
 <!-- 技能中心 -->
@@ -1012,11 +1013,16 @@ body:has(.sidebar.open) #sbScrim{display:block}
       <button class="x-close" onclick="$('mcpOverlay').classList.remove('show')">✕</button>
     </div>
     </div>
-    <p class="sub">MCP = Model Context Protocol（Anthropic 开源标准）。每个服务器是一个本机进程，它的工具会自动并入小凡的工具清单（名字带 <b>mcp_前缀</b>）。<b>可同时挂多个服务器</b>；当前支持 stdio 协议（npm / uvx 安装的都行）。</p>
+    <p class="sub" style="margin-top:10px">MCP = Model Context Protocol（Anthropic 开源标准）。每个服务器是一个本机进程，它的工具会自动并入小凡的工具清单（名字带 <b>mcp_前缀</b>）。<b>可同时挂多个服务器</b>；当前支持 stdio 协议（npm / uvx 安装的都行）。<b>前置条件：电脑装有免费 Node.js（nodejs.org）</b>，带 uvx 标注的还需装 uv。</p>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <button class="tab-btn on" id="mcpTabBtnMine" onclick="switchMcpTab('mine')">📂 我的服务器</button>
+      <button class="tab-btn" id="mcpTabBtnMarket" onclick="switchMcpTab('market')">🛒 MCP 市场</button>
+    </div>
+    <div id="mcpTabMine">
     <div id="mcpMountedLine" style="font-size:12px;color:var(--accent2);margin:-6px 0 10px">加载中…</div>
     <div id="mcpServerList" style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px"></div>
     <div style="border:1px dashed var(--line2);border-radius:14px;padding:12px 14px">
-      <div style="font-size:12.5px;font-weight:600;color:var(--txt);margin-bottom:8px">➕ 添加 MCP 服务器</div>
+      <div style="font-size:12.5px;font-weight:600;color:var(--txt);margin-bottom:8px">➕ 手动添加 MCP 服务器</div>
       <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-bottom:8px">
         <input id="mcpName" placeholder="名称，如 filesystem">
         <input id="mcpCommand" placeholder="启动命令，如 npx" style="font-family:Consolas,monospace">
@@ -1030,6 +1036,17 @@ body:has(.sidebar.open) #sbScrim{display:block}
       <summary style="cursor:pointer;font-size:12px;color:var(--faint)">高级：直接编辑 JSON 配置</summary>
       <textarea id="mcpJsonAdv" spellcheck="false" style="width:100%;min-height:110px;margin-top:8px;font-family:Consolas,monospace;font-size:11.5px;background:var(--bg2);color:var(--txt);border:1px solid var(--line);border-radius:10px;padding:8px"></textarea>
     </details>
+    </div>
+    <div id="mcpTabMarket" style="display:none">
+      <input id="mcpMarketSearch" placeholder="🔍 搜索市场（如：excel、浏览器、github）" style="width:100%;margin-bottom:4px" oninput="renderMcpMarket()">
+      <div id="mcpMarketCats" style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 12px"></div>
+      <div id="mcpMarketList" style="display:flex;flex-direction:column;gap:10px;max-height:340px;overflow:auto;padding-right:4px"></div>
+      <p style="font-size:11px;color:var(--faint);margin-top:10px;line-height:1.7">
+        市场目录内置在本地（离线可用），精选自官方 servers 与
+        <a href="https://github.com/punkpeye/awesome-mcp-servers" target="_blank" rel="noopener" style="color:#7fb4ff">awesome-mcp-servers</a>（⭐9.8万，几千个现成服务器）。
+        想要的这里没有？去目录里找到后用「我的服务器 → 手动添加」三格填入即可。
+      </p>
+    </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="$('mcpOverlay').classList.remove('show')">取消</button>
       <button class="btn-primary" onclick="saveMcpServers()">💾 保存并挂载</button>
@@ -1534,7 +1551,51 @@ function addMcpServer(){
 function delMcpServer(i){
   mcpServers.splice(i, 1);
   $("mcpJsonAdv").value = JSON.stringify({servers: mcpServers}, null, 2);
-  renderMcpCards();
+  renderMcpCards(); renderMcpMarket();
+}
+/* ===== MCP 市场：本地精选目录 + 分类筛选 + 搜索（B+A 组合） ===== */
+let mcpMarketCat = "全部";
+function switchMcpTab(tab){
+  const mine = tab === "mine";
+  $("mcpTabMine").style.display = mine ? "" : "none";
+  $("mcpTabMarket").style.display = mine ? "none" : "";
+  $("mcpTabBtnMine").classList.toggle("on", mine);
+  $("mcpTabBtnMarket").classList.toggle("on", !mine);
+  if(!mine) renderMcpMarket();
+}
+function installCatalogItem(idx){
+  const p = (window.MCP_CATALOG || [])[idx];
+  if(!p) return;
+  if(mcpServers.some(s => s.name === p.name)){
+    setStatus("「" + p.label + "」已经在你的列表里啦"); return;
+  }
+  mcpServers.push({name: p.name, command: p.command, args: p.args.slice()});
+  $("mcpJsonAdv").value = JSON.stringify({servers: mcpServers}, null, 2);
+  renderMcpCards(); renderMcpMarket();
+  setStatus(`📦 已把「${p.label}」加入安装列表，点左下「💾 保存并挂载」完成安装（首次运行会自动下载，稍等片刻）`);
+}
+function renderMcpMarket(){
+  const cat = (window.MCP_CATALOG || []);
+  const cats = ["全部", ...new Set(cat.map(p => p.cat))];
+  $("mcpMarketCats").innerHTML = cats.map(c =>
+    `<button class="tab-btn ${c===mcpMarketCat?"on":""}" style="padding:4px 12px;font-size:11.5px" onclick="mcpMarketCat='${c}';renderMcpMarket()">${c}</button>`).join("");
+  const q = ($("mcpMarketSearch").value || "").toLowerCase();
+  const items = cat.filter(p =>
+    (mcpMarketCat === "全部" || p.cat === mcpMarketCat) &&
+    (!q || (p.label + p.desc + p.name).toLowerCase().includes(q)));
+  $("mcpMarketList").innerHTML = items.length ? items.map((p) => {
+    const idx = cat.indexOf(p);
+    const added = mcpServers.some(s => s.name === p.name);
+    return `<div style="display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--panel)">
+      <div style="flex:1;min-width:0;text-align:left">
+        <div style="font-size:13px;color:var(--txt)"><b>${esc(p.label)}</b> <span style="color:var(--faint);font-size:11px">${esc(p.cat)} · ${esc(p.name)}</span></div>
+        <div style="font-size:12px;color:var(--dim);margin-top:2px">${esc(p.desc)}${p.note ? `<span style="color:#e0a060">（⚠ ${esc(p.note)}）</span>` : ""}</div>
+        <div style="font-size:10.5px;color:var(--faint);font-family:Consolas,monospace;word-break:break-all;margin-top:2px">${esc(p.command + " " + p.args.join(" "))}</div>
+      </div>
+      <button class="btn-primary" style="flex-shrink:0;padding:7px 16px;font-size:12.5px;${added?"opacity:.4":""}"
+        onclick="installCatalogItem(${idx})">${added ? "已添加" : "安装"}</button>
+    </div>`;
+  }).join("") : `<div style="font-size:12px;color:var(--faint);text-align:center;padding:20px;border:1px dashed var(--line);border-radius:14px">没找到匹配的服务器。可去 awesome-mcp-servers 目录找，再手动添加。</div>`;
 }
 async function saveMcpServers(){
   // 高级 JSON 改过就优先用它
