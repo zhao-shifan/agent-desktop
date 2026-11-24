@@ -5,6 +5,9 @@ window.MCP_CATALOG = [
   // 📁 文件与系统
   {name:"filesystem", label:"文件系统", cat:"文件", desc:"安全读写指定文件夹（最实用，推荐首选）", command:"npx", args:["-y","@modelcontextprotocol/server-filesystem","D:/"]},
   {name:"everything", label:"演示/测试", cat:"文件", desc:"官方演示服务器，验证 MCP 通不通", command:"npx", args:["-y","@modelcontextprotocol/server-everything"]},
+  // 🌤 天气与地理
+  {name:"open-meteo", label:"Open-Meteo 天气", cat:"天气", desc:"17 个工具：16 天预报/1940 年历史天气/空气质量/海洋/洪水/地理编码，免 Key（open-meteo-mcp-server，⭐74）", command:"npx", args:["-y","-p","open-meteo-mcp-server","open-meteo-mcp-server"], note:"自带 15 分钟响应缓存，重复提问不重复请求"},
+  {name:"weather-go", label:"Weather MCP（Go 版）", cat:"天气", desc:"GitHub star 最高（⭐246，ezh0v/weather-mcp-server），实时天气+AI 解读，免 Key", command:"weather-mcp-server", args:[], note:"Go 编写且官方未发二进制：需先装 Go 工具链并 go install github.com/ezh0v/weather-mcp-server/cmd/weather-mcp-server@latest，把 exe 路径填进 command 后再用"},
   // 🌐 网络与搜索
   {name:"fetch", label:"网页抓取", cat:"网络", desc:"抓取网页正文转文本（需装 uv）", command:"uvx", args:["mcp-server-fetch"]},
   {name:"brave-search", label:"Brave 搜索", cat:"网络", desc:"网页搜索（需免费 Brave API Key）", command:"npx", args:["-y","@modelcontextprotocol/server-brave-search"], note:"需在 env 里填 BRAVE_API_KEY"},

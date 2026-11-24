@@ -745,6 +745,29 @@ body:has(.sidebar.open) #sbScrim{display:block}
   #wallGrid{grid-template-columns:repeat(2,1fr)!important}
   .skill-grid{grid-template-columns:repeat(2,1fr)!important}
 }
+
+/* ===== 高级感细节打磨（增量层，2026-11）：玻璃质感/彩色阴影/微浮起 ===== */
+.msg,.composer,.sidebar,.modal{
+  box-shadow:0 12px 40px rgba(0,0,0,.28),0 0 0 1px rgba(255,255,255,.045) inset}
+.composer:focus-within{
+  box-shadow:0 16px 48px rgba(124,108,255,.13),0 0 0 1px rgba(124,108,255,.35) inset}
+.btn-send,.round-btn,.menu-toggle,[class*="btn"]{
+  transition:transform .25s cubic-bezier(.2,.8,.2,1),box-shadow .25s}
+.btn-send:hover,.round-btn:hover,[class*="btn"]:hover{
+  transform:translateY(-1px)}
+.btn-send:active,.round-btn:active,[class*="btn"]:active{
+  transform:translateY(0) scale(.97)}
+.modal{
+  animation:modalIn .3s cubic-bezier(.2,.8,.2,1)}
+@keyframes modalIn{
+  from{opacity:0;transform:translateY(14px) scale(.985)}
+  to{opacity:1;transform:none}}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:99px;border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.2);background-clip:content-box;border:2px solid transparent}
+@media (prefers-reduced-motion: reduce){
+  .modal{animation:none}
+  .btn-send:hover,.round-btn:hover,[class*="btn"]:hover{transform:none}}
 </style>
 </head>
 <body>
@@ -782,7 +805,7 @@ body:has(.sidebar.open) #sbScrim{display:block}
         🔌 <span id="mcpBtnText">MCP 工具</span>
       </button>
       <button class="btn-settings" onclick="openSkills()" style="margin-bottom:8px">
-        🧩 <span id="skillBtnText">技能</span>
+        🧩 <span>技能</span>
       </button>
       <button class="btn-settings" onclick="openThemes()" style="margin-bottom:8px">
         🎨 <span>主题外观</span>
@@ -991,6 +1014,7 @@ body:has(.sidebar.open) #sbScrim{display:block}
   </div>
 </div>
 <script src="./marked.min.js"></script>
+<script src="./mammoth.min.js"></script>
 <script src="./purify.min.js"></script>
 <script src="./qrcode.js"></script>
 <script src="./mcp_catalog.js"></script>
@@ -1478,6 +1502,7 @@ async function standaloneChatWithTools(msgs, el, toolLog){
       hist.push({role: "tool", tool_call_id: tc.id, content: String(res).slice(0, 12000)});
       el.innerHTML = toolLineHtml(toolLog) + mdRender(full);
       scrollBottom();
+      if(/agent_data[\\\/](images|kb)[\\\/][\w\-.]+\.(png|jpe?g|webp|txt|md)/i.test(String(res))) canvasNotify();
     }
   }
   if(!full) full = "（工具调用轮数达到上限，先给你目前掌握的信息）";
@@ -2709,6 +2734,13 @@ async function exportDoc(idx){
     const blob = await r.blob();
     downloadBlob(blob, "小凡智能体-"+Date.now()+".docx");
     setStatus("Word 文档已生成，开始下载 ✅");
+    // 存档到画布：右侧「🗂 产物画布」可随时点开预览
+    try{
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(await blob.slice(0, 30*1024*1024).arrayBuffer())));
+      await fetch("/api/save_doc",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({name:"小凡智能体-"+new Date().toLocaleDateString().replace(/\//g,"-"), data:b64})});
+      canvasNotify();
+    }catch(_){}
   }catch(e){
     // 服务不可用时兜底为本地 .doc
     setStatus("服务端 docx 不可用（"+e.message+"），改用本地导出…");
@@ -3746,10 +3778,9 @@ function renderSkills(){
       <span class="tcheck">✓</span>
       <div style="font-size:14px;margin-bottom:6px;display:flex;align-items:center;gap:6px">${s.name}${badge}${del}</div>
       <div style="font-size:11.5px;color:var(--dim);line-height:1.6">${s.desc}</div>
+      <div style="margin-top:8px;font-size:11px"><span style="color:var(--accent2,#7c8cff);cursor:pointer;text-decoration:underline" onclick="event.stopPropagation();showSkillDetail('${s.id}')">📋 查看详情 · 说明文档</span></div>
     </div>`;
   }).join("");
-  $("skillBtnText").textContent = activeSkill ? "技能·" + (total.find(s=>s.id===activeSkill)||{}).name.replace(/^\S+\s/,"") || "自动匹配" : "技能";
-  if(activeSkill === "auto") $("skillBtnText").textContent = "技能·自动匹配";
   renderSkillSelect();
 }
 function renderSkillSelect(){
@@ -3768,9 +3799,42 @@ function toggleSkill(id){
   activeSkill = (activeSkill === id) ? "" : id;
   localStorage.setItem("aria.skill", activeSkill);
   renderSkills();
+  $("skillOverlay").classList.remove("show"); // 点击技能卡即启用并退出弹框
   setStatus(activeSkill ? "技能已启用：" + allSkills().find(s=>s.id===id).name : "技能已关闭");
 }
 function openSkills(){ renderSkills(); $("skillOverlay").classList.add("show"); }
+
+/* ---- 技能详情：完整 MD 说明 + 出处链接 + 一键启用 ---- */
+function showSkillDetail(id){
+  const s = allSkills().find(x=>x.id===id); if(!s) return;
+  let ov = $("skillDetailOverlay");
+  if(!ov){
+    ov = document.createElement("div");
+    ov.id = "skillDetailOverlay"; ov.className = "overlay";
+    ov.innerHTML = `<div class="modal" style="width:min(680px,100%)">
+      <div class="modal-head"><h3 id="skdName"></h3><button class="x-close" onclick="$('skillDetailOverlay').classList.remove('show')">✕</button></div>
+      <div class="sub" id="skdDesc"></div>
+      <div id="skdSource" style="margin-bottom:12px;font-size:12px"></div>
+      <div id="skdBody" style="max-height:52vh;overflow-y:auto;font-size:12.8px;line-height:1.75;background:rgba(0,0,0,.28);padding:16px;border-radius:12px"></div>
+      <div style="margin-top:14px">
+        <button class="btn-ghost" style="width:100%;padding:10px 0;border-radius:10px" onclick="$('skillDetailOverlay').classList.remove('show')">关闭</button>
+      </div>
+    </div>`;
+    document.body.appendChild(ov);
+  }
+  $("skdName").innerHTML = s.name;
+  $("skdDesc").textContent = s.desc || "";
+  $("skdSource").innerHTML = s.source
+    ? `📦 出处：<a href="${s.source}" target="_blank" rel="noopener" style="color:var(--accent2,#7c8cff)">${s.source}</a>${s.official?"（Anthropic 官方技能库）":""}`
+    : "📦 出处：小凡内置";
+  const body = $("skdBody");
+  if(typeof marked !== "undefined" && typeof DOMPurify !== "undefined"){
+    body.innerHTML = DOMPurify.sanitize(marked.parse((s.prompt||"").replace(/^---[\s\S]*?---\s*/,"")));
+  } else {
+    body.textContent = (s.prompt||"").replace(/^---[\s\S]*?---\s*/,"").slice(0, 8000);
+  }
+  ov.classList.add("show");
+}
 $("skillOverlay").addEventListener("click", e=>{ /* 仅 ✕ 关闭 */ });
 
 /* ---- 自定义技能：手动创建 / 上传 zip / md（兼容 Claude Skills 规范） ---- */
@@ -4731,5 +4795,162 @@ body[data-theme="light-gray"] .cd-item, body[data-theme="mint"] .cd-item{color:#
   else init();
 })();
 </script>
+
+<!-- ===== 右侧画布（Canvas）：点文件即时预览，参考千问/豆包 ===== -->
+<style>
+#canvasPanel{position:fixed;top:0;right:-420px;width:400px;max-width:92vw;height:100vh;z-index:70;
+  display:flex;flex-direction:column;transition:right .3s var(--ease,cubic-bezier(.2,.8,.2,1));
+  background:rgba(14,14,20,.92);backdrop-filter:blur(24px);border-left:1px solid rgba(255,255,255,.08);
+  box-shadow:-24px 0 60px rgba(0,0,0,.45)}
+#canvasPanel.open{right:0}
+.canvas-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.07)}
+.canvas-head h4{margin:0;font-size:14px;flex:1}
+.canvas-body{flex:1;display:flex;flex-direction:column;overflow:hidden}
+#cvList{flex:1;overflow-y:auto;padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-content:start}
+#cvView{flex:1;overflow:auto;padding:14px;display:none}
+#cvView img{max-width:100%;border-radius:10px;display:block;margin:0 auto}
+#cvView pre{white-space:pre-wrap;word-break:break-word;font-size:12.5px;line-height:1.6;
+  background:rgba(0,0,0,.3);padding:12px;border-radius:10px}
+.cv-item{border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden;cursor:pointer;
+  background:rgba(255,255,255,.04);transition:transform .2s,border-color .2s}
+.cv-item:hover{transform:translateY(-2px);border-color:rgba(124,108,255,.5)}
+.cv-item img{width:100%;height:76px;object-fit:cover;display:block}
+.cv-item .cn{padding:6px 8px 2px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cv-item .cd{padding:0 8px 7px;font-size:10px;opacity:.5}
+.cv-item.doc .cth{height:76px;display:flex;align-items:center;justify-content:center;font-size:30px}
+.cv-empty{grid-column:1/-1;text-align:center;opacity:.5;font-size:12px;padding:28px 10px;line-height:1.8}
+.cv-badge{display:none;position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;
+  background:#7c6cff;box-shadow:0 0 8px rgba(124,108,255,.8)}
+.cv-back{margin-bottom:10px;font-size:12px;opacity:.7;cursor:pointer;background:none;border:1px solid rgba(255,255,255,.15);color:inherit;border-radius:8px;padding:5px 12px}
+@media(max-width:760px){
+  #canvasPanel{width:100vw;max-width:100vw}
+  #cvList{grid-template-columns:repeat(2,1fr)}
+}
+</style>
+<aside id="canvasPanel">
+  <div class="canvas-head">
+    <h4>🗂 产物画布</h4>
+    <button class="x-close" onclick="$('canvasPanel').classList.remove('open')">✕</button>
+  </div>
+  <div class="canvas-body">
+    <div id="cvList"></div>
+    <div id="cvView"></div>
+  </div>
+</aside>
+<script>
+function canvasToggle(){ const p = $("canvasPanel"); p.classList.toggle("open"); if(p.classList.contains("open")) cvLoad(); }
+function canvasNotify(){           /* 生成新产物：亮徽标，面板开着就即时刷新 */
+  const btn = $("canvasBtn");
+  if(btn) btn.querySelector(".cv-badge").style.display = "block";
+  if($("canvasPanel").classList.contains("open")) cvLoad();
+  setStatus("📦 小凡生成了新产物，点侧边栏「产物画布」查看");
+}
+function cvLoad(){
+  fetch("/api/artifacts").then(r=>r.json()).then(d=>{
+    const g = $("cvList"); g.innerHTML = "";
+    if(!(d.files||[]).length){
+      g.innerHTML = '<div class="cv-empty">还没有产物<br>让小凡「画一张图」或往<br>agent_data/kb/ 放 .txt/.md 文档</div>';
+      return;
+    }
+    d.files.forEach(f=>{
+      const isImg = f.dir === "images";
+      const el = document.createElement("div");
+      el.className = "cv-item" + (isImg ? "" : " doc");
+      el.innerHTML = isImg
+        ? `<img loading="lazy" src="/api/file?f=${f.dir}/${encodeURIComponent(f.name)}"><div class="cn">${f.name}</div><div class="cd">${(f.size/1024).toFixed(0)} KB</div>`
+        : `<div class="cth">${f.name.endsWith(".md")?"📝":"📄"}</div><div class="cn">${f.name}</div><div class="cd">${(f.size/1024).toFixed(1)} KB</div>`;
+      el.onclick = ()=>cvOpen(f);
+      g.appendChild(el);
+    });
+  }).catch(()=>{ $("cvList").innerHTML = '<div class="cv-empty">加载失败，确认服务已启动</div>'; });
+}
+function cvOpen(f){
+  $("cvList").style.display = "none";
+  const v = $("cvView"); v.style.display = "block"; v.innerHTML = "";
+  const back = document.createElement("button");
+  back.className = "cv-back"; back.textContent = "← 返回列表"; back.onclick = cvBack;
+  v.appendChild(back);
+  const isImg = f.dir === "images";
+  if(isImg){
+    const img = document.createElement("img");
+    img.src = "/api/file?f=" + f.dir + "/" + encodeURIComponent(f.name);
+    v.appendChild(img);
+  } else if(/\.docx$/i.test(f.name)){
+    const dl = document.createElement("button");
+    dl.className = "cv-back"; dl.textContent = "⬇ 下载原文件";
+    dl.style.marginLeft = "10px";
+    dl.onclick = ()=>window.open("/api/file?f=" + f.dir + "/" + encodeURIComponent(f.name));
+    back.after(dl);
+    const holder = document.createElement("div");
+    holder.textContent = "正在渲染 Word 文档…";
+    v.appendChild(holder);
+    // 优先 mammoth.js（GitHub 主流 docx→HTML 渲染库，保留标题/列表/表格排版）
+    if(typeof mammoth !== "undefined" && mammoth.convertToHtml){
+      fetch("/api/file?f=" + f.dir + "/" + encodeURIComponent(f.name))
+        .then(r=>r.arrayBuffer())
+        .then(buf=>mammoth.convertToHtml({arrayBuffer:buf}))
+        .then(res=>{
+          holder.innerHTML = DOMPurify.sanitize(res.value || "<p>（空文档）</p>");
+          holder.style.cssText = "font-size:13.5px;line-height:1.8";
+          holder.querySelectorAll("table").forEach(tb=>{
+            tb.style.cssText = "border-collapse:collapse;width:100%;font-size:12px";
+            tb.querySelectorAll("td,th").forEach(c=>{
+              c.style.cssText = "border:1px solid rgba(255,255,255,.15);padding:5px 8px";
+            });
+          });
+          holder.querySelectorAll("img").forEach(im=>{ im.style.maxWidth = "100%"; });
+        })
+        .catch(()=>mammothFallback());
+    } else mammothFallback();
+    function mammothFallback(){
+      // 兜底：服务端抽纯文本（python-docx）
+      fetch("/api/file?f=" + f.dir + "/" + encodeURIComponent(f.name) + "&preview=1")
+        .then(r=>r.text()).then(t=>{
+          holder.remove();
+          const pre = document.createElement("pre"); pre.textContent = t || "（空文档）"; v.appendChild(pre);
+        }).catch(e=>{ holder.textContent = "预览失败：" + e; });
+    }
+  } else if(/\.html?$/i.test(f.name)){
+    const fr = document.createElement("iframe");
+    fr.style.cssText = "width:100%;height:calc(100vh - 130px);border:0;border-radius:10px;background:#fff";
+    fr.src = "/api/file?f=" + f.dir + "/" + encodeURIComponent(f.name);
+    v.appendChild(fr);
+  } else {
+    const pre = document.createElement("pre"); pre.textContent = "加载中…"; v.appendChild(pre);
+    fetch("/api/file?f=" + f.dir + "/" + encodeURIComponent(f.name)).then(r=>r.text()).then(t=>{
+      if(/\.md$/i.test(f.name) && typeof marked !== "undefined" && typeof DOMPurify !== "undefined"){
+        const div = document.createElement("div");
+        div.style.cssText = "font-size:13.5px;line-height:1.75";
+        div.innerHTML = DOMPurify.sanitize(marked.parse(t));
+        pre.replaceWith(div);
+      } else pre.textContent = t.slice(0, 60000);
+    });
+  }
+}
+function cvBack(){
+  $("cvView").style.display = "none"; $("cvView").innerHTML = "";
+  $("cvList").style.display = "grid";
+}
+/* 对话里生成的图片：点击放大（lightbox） */
+/* 回复里的链接：新标签打开，不打断当前对话 */
+document.addEventListener("click", e=>{
+  const a = e.target.closest(".msg a[href^='http']");
+  if(a){ a.target = "_blank"; a.rel = "noopener"; }
+}, true);
+document.addEventListener("click", e=>{
+  const img = e.target.closest('img[src^="/api/file"], img[src*="/api/file?f="]');
+  if(!img) return;
+  const ov = document.createElement("div");
+  ov.style.cssText = "position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;cursor:zoom-out";
+  const big = document.createElement("img");
+  big.src = img.src;
+  big.style.cssText = "max-width:94%;max-height:94%;border-radius:10px;box-shadow:0 24px 80px rgba(0,0,0,.6)";
+  ov.appendChild(big);
+  ov.onclick = ()=>ov.remove();
+  document.body.appendChild(ov);
+}, true);
+</script>
+<!-- ===== /右侧画布 ===== -->
+
 </body>
 </html>

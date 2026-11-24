@@ -216,6 +216,7 @@ class Handler(BaseHTTPRequestHandler):
             "/marked.min.js": "marked.min.js",
             "/purify.min.js": "purify.min.js",
             "/html-docx.js": "html-docx.js",
+            "/mammoth.min.js": "mammoth.min.js",
             "/manifest.json": "manifest.json",
             "/sw.js": "sw.js",
         }
@@ -291,8 +292,97 @@ class Handler(BaseHTTPRequestHandler):
             ids = wallpaper_ids()
             self._send_json({"ok": True, "count": len(ids), "ids": ids,
                              "cards": wallpaper_card_ids()})
+        elif self.path == "/api/artifacts":
+            self.handle_artifacts()
+        elif self.path.startswith("/api/file?"):
+            self.handle_file()
+        elif self.path == "/api/save_doc":
+            self.handle_save_doc()
         else:
             self._send_json({"error": "not found"}, 404)
+
+    # ---------- 生成的 Word 存档：画布可预览 ----------
+    def handle_save_doc(self):
+        payload = self._json_body()
+        data = base64.b64decode(payload.get("data", ""))
+        if not data:
+            self._send_json({"error": "内容为空"}, 400); return
+        d = os.path.join(ROOT, "agent_data", "docs")
+        os.makedirs(d, exist_ok=True)
+        fname = "%s_%s.docx" % (time.strftime("%Y%m%d_%H%M%S"),
+                                re.sub(r"[^\w\u4e00-\u9fff\-]+", "", payload.get("name") or "文档")[:40] or "文档")
+        with open(os.path.join(d, fname), "wb") as f:
+            f.write(data[:30 * 1024 * 1024])
+        self._send_json({"ok": True, "dir": "docs", "name": fname})
+
+    # ---------- 产物预览：列出 agent_data 下生成的图片/文档 ----------
+    def handle_artifacts(self):
+        root = os.path.join(ROOT, "agent_data")
+        out = []
+        for sub, exts in (("images", (".png", ".jpg", ".jpeg", ".webp")),
+                          ("kb", (".txt", ".md")),
+                          ("docs", (".docx",))):
+            d = os.path.join(root, sub)
+            if not os.path.isdir(d):
+                continue
+            for fn in os.listdir(d):
+                p = os.path.join(d, fn)
+                if os.path.isfile(p) and os.path.splitext(fn)[1].lower() in exts:
+                    st = os.stat(p)
+                    out.append({"dir": sub, "name": fn, "size": st.st_size,
+                                "mtime": int(st.st_mtime)})
+        out.sort(key=lambda x: -x["mtime"])
+        self._send_json({"ok": True, "files": out})
+
+    # ---------- 产物预览：读取单个文件（严格限定在 agent_data 内，防目录穿越） ----------
+    def handle_file(self):
+        from urllib.parse import urlparse, parse_qs
+        q = parse_qs(urlparse(self.path).query)
+        rel = ((q.get("f") or [""])[0]).replace("\\", "/").lstrip("/")
+        base = os.path.abspath(os.path.join(ROOT, "agent_data"))
+        full = os.path.abspath(os.path.join(base, rel))
+        if not full.startswith(base + os.sep) or not os.path.isfile(full):
+            self._send_json({"error": "not found"}, 404)
+            return
+        ext = os.path.splitext(full)[1].lower()
+        # docx 预览模式：抽纯文本回传（画布/移动端无法直接渲染 docx）
+        if ext == ".docx" and (q.get("preview") or [""])[0] == "1":
+            try:
+                text = extract_text(os.path.basename(full), open(full, "rb").read())
+            except Exception as e:
+                text = "（预览解析失败：%s）" % e
+            body = text[:100000].encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        ctype = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                 ".webp": "image/webp", ".txt": "text/plain; charset=utf-8",
+                 ".md": "text/plain; charset=utf-8",
+                 ".html": "text/html; charset=utf-8"}.get(ext, "application/octet-stream")
+        with open(full, "rb") as f:
+            body = f.read(10 * 1024 * 1024)
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(body)
+
+    # ---------- 侧边栏终端：复用 run_command（沿用「允许执行命令」权限开关） ----------
+    def handle_terminal(self):
+        payload = self._json_body()
+        if not payload.get("allowCommand"):
+            self._send_json({"error": "被拒绝：请先在设置里打开「允许执行命令」权限"}, 403)
+            return
+        cmd = (payload.get("command") or "").strip()
+        if not cmd:
+            self._send_json({"error": "命令为空"}, 400)
+            return
+        out = tools_layer.run_command(cmd, payload.get("workDir") or "")
+        self._send_json({"ok": True, "output": out})
 
     def do_POST(self):
         try:
@@ -316,6 +406,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.handle_xlsx()
             elif self.path == "/api/mcp":
                 self.handle_mcp_save()
+            elif self.path == "/api/terminal":
+                self.handle_terminal()
+            elif self.path == "/api/save_doc":
+                self.handle_save_doc()
             else:
                 self._send_json({"error": "not found"}, 404)
         except (BrokenPipeError, ConnectionResetError):
@@ -581,15 +675,48 @@ class Handler(BaseHTTPRequestHandler):
         name = payload.get("name", "skill")
         data = base64.b64decode(payload.get("data", ""))
         text = None
+        skill_dir = None
         if name.lower().endswith(".zip"):
             with zipfile.ZipFile(io.BytesIO(data)) as z:
-                candidates = [n for n in z.namelist()
-                              if n.lower().endswith("skill.md") or (n.lower().endswith(".md") and "/" not in n)]
-                if not candidates:
-                    candidates = [n for n in z.namelist() if n.lower().endswith(".md")]
-                if not candidates:
+                # ---- 完整解包到 agent_data/skills/<slug>/，脚本类技能才能真正干活 ----
+                slug = re.sub(r"[^\w\-]+", "-", os.path.splitext(os.path.basename(name))[0]).strip("-") or "skill"
+                skill_dir = os.path.abspath(os.path.join(ROOT, "agent_data", "skills", slug))
+                total = sum(zi.file_size for zi in z.infolist())
+                if total > 80 * 1024 * 1024:
+                    self._send_json({"error": "技能包超过 80MB，拒绝解压"}, 400); return
+                for zi in z.infolist():
+                    dst = os.path.abspath(os.path.join(skill_dir, zi.filename))
+                    if not dst.startswith(skill_dir + os.sep):   # 防 zip slip 穿越
+                        continue
+                    if zi.is_dir():
+                        os.makedirs(dst, exist_ok=True)
+                    else:
+                        os.makedirs(os.path.dirname(dst), exist_ok=True)
+                        with z.open(zi) as src, open(dst, "wb") as out:
+                            out.write(src.read(20 * 1024 * 1024))
+                # ---- 找 SKILL.md：多技能仓库优先挑与包名匹配的主技能 ----
+                slug_tokens = [t for t in slug.split("-") if len(t) > 2]
+                cands = [n for n in z.namelist() if n.lower().endswith("skill.md")]
+                if not cands:
+                    cands = [n for n in z.namelist() if n.lower().endswith(".md")]
+                if not cands:
                     self._send_json({"error": "压缩包里没找到 .md 技能文件（需要 SKILL.md）"}, 400); return
+                def _score(nm):
+                    depth = nm.count("/")
+                    hit = sum(1 for t in slug_tokens if t in nm.lower())
+                    exact = 0 if nm.lower().endswith("skill.md") else 1
+                    return (-hit, exact, depth)
+                candidates = [sorted(cands, key=_score)[0]]
                 text = z.read(candidates[0]).decode("utf-8", errors="replace")
+                root_in_zip = os.path.dirname(candidates[0])
+                real_root = os.path.join(skill_dir, root_in_zip) if root_in_zip else skill_dir
+                for ph in ("${CLAUDE_PLUGIN_ROOT}", "${CLAUDE_SKILL_DIR}", "${SKILL_DIR}"):
+                    text = text.replace(ph, real_root.replace("\\", "/"))
+                has_scripts = any(n.lower().endswith(".py") for n in z.namelist())
+                if has_scripts:
+                    text += ("\n\n> 【小凡环境注】本技能带脚本与数据文件，已完整解压到上面路径。"
+                             "需要查库/跑脚本时，用 run_python 或 run_command 直接执行其中的 .py 文件"
+                             "（本机已有 Python 3，无需 pip 安装依赖优先直接 import）。")
         else:
             text = data.decode("utf-8", errors="replace")
         m = re.match(r"^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$", text)
@@ -657,6 +784,8 @@ class Handler(BaseHTTPRequestHandler):
         model = payload.get("model") or ""
         temperature = payload.get("temperature")
         messages = payload.get("messages") or []
+        # 注入当前模型 API 配置给工具层（image_gen / analyze_image 复用同一账号）
+        tools_layer.set_api_ctx(base, key, model)
 
         # ---------- 内容降级：纯文本模型不接受 image_url 等多模态块（智谱 1210） ----------
         _VISION_HINTS = ("glm-4v", "glm-4.5v", "glm-4.6v", "4o", "vision", "vl-",

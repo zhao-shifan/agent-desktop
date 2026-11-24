@@ -263,10 +263,23 @@ _WEATHER_CODES = {
 }
 
 
+def _default_city():
+    """读用户设定的默认城市（agent_data/user_location.json，如 {"city":"成都"}）。
+    开代理时 IP 定位会定位到代理机房，所以默认城市优先级最高。"""
+    try:
+        p = os.path.join(APP_ROOT, "agent_data", "user_location.json")
+        d = json.loads(open(p, "rb").read().decode("utf-8"))
+        return (d.get("city") or "").strip()
+    except Exception:
+        return ""
+
+
 def get_weather(city="", days=3):
-    """天气：Open-Meteo（免 Key）。city 为空则先 IP 定位。"""
+    """天气：Open-Meteo（免 Key）。city 为空则依次尝试 默认城市 → IP 定位。"""
     days = max(1, min(int(days or 3), 7))
     place, lat, lon = None, None, None
+    if not city:
+        city = _default_city()   # 开代理时 IP 定位会跑到机房城市，默认城市优先
     if city:
         g = _geocode(city)
         if not g:
@@ -878,8 +891,28 @@ TOOL_DEFS = [
             "required": ["query"]}}},
     {"type": "function", "function": {
         "name": "get_location",
-        "description": "按出口 IP 粗略判断用户所在城市（免 Key、无需授权，精度到城市）。用户问天气/本地信息但没说城市时可先调它。",
+        "description": "按出口 IP 粗略判断所在城市。注意：用户开代理/VPN 时会定位到代理机房（可能显示外地甚至国外），结果仅供参考。问天气时应优先用用户默认城市（get_weather 不传 city 会自动用），此工具仅作最后兜底。",
         "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
+        "name": "image_gen",
+        "description": "文生图：根据文字描述生成图片并保存到 agent_data/images/。用户说\"画一张/生成图片/来张图\"时使用。",
+        "parameters": {"type": "object", "properties": {
+            "prompt": {"type": "string", "description": "画面描述，越具体越好"}},
+            "required": ["prompt"]}}},
+    {"type": "function", "function": {
+        "name": "analyze_image",
+        "description": "看图/图片理解：分析本地图片路径或网络图片 URL，回答关于图片的问题（内容、文字、图表等）。需要模型 API 支持视觉（智谱自动退到免费的 glm-4v-flash）。",
+        "parameters": {"type": "object", "properties": {
+            "image": {"type": "string", "description": "图片 URL 或本地路径"},
+            "question": {"type": "string", "description": "想问图片的问题，留空则做整体描述"}},
+            "required": ["image"]}}},
+    {"type": "function", "function": {
+        "name": "kb_search",
+        "description": "知识库检索：在 agent_data/kb/ 文件夹的 .txt/.md 文档里按相关性找内容片段。用户问\"我的资料/文档里/知识库里…\"或私人资料问题时先用它。文档更新后自动生效，无需重建索引。",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "检索关键词或问题"},
+            "top_k": {"type": "integer", "description": "返回条数，默认 4"}},
+            "required": ["query"]}}},
     {"type": "function", "function": {
         "name": "lark_cli",
         "description": "调用飞书/Lark 命令行（lark-cli，全量 OpenAPI）。可查日程/任务/消息记录/文档/多维表格/审批/OKR 等一切飞书功能。读操作直接执行；发消息、建文档等写操作需用户开启命令权限。args 为 lark-cli 子命令字符串，如 \"calendar +agenda\"、\"task +get-my-tasks\"、\"im +search 王小凡\"。",
@@ -888,7 +921,7 @@ TOOL_DEFS = [
             "required": ["args"]}}},
     {"type": "function", "function": {
         "name": "get_weather",
-        "description": "查询当前天气和未来几天预报（Open-Meteo，免 Key）。",
+        "description": "查询当前天气和未来几天预报（Open-Meteo，免 Key）。不传 city 时自动用用户默认城市（agent_data/user_location.json），没有默认城市才退回 IP 定位。用户问天气直接调它即可，不要先调 get_location。",
         "parameters": {"type": "object", "properties": {
             "city": {"type": "string", "description": "城市名，如 上海；留空则按 IP 定位"},
             "days": {"type": "integer", "description": "预报天数 1-7，默认 3"}}}}},
@@ -956,6 +989,12 @@ def run_tool(call, perm=None):
             return get_location()
         if name == "get_weather":
             return get_weather(args.get("city", ""), args.get("days", 3))
+        if name == "image_gen":
+            return image_gen(args.get("prompt", ""))
+        if name == "analyze_image":
+            return analyze_image(args.get("image", ""), args.get("question", ""))
+        if name == "kb_search":
+            return kb_search(args.get("query", ""), args.get("top_k", 4))
         return "未知工具：%s" % name
     except PermissionError as e:
         return "被拒绝：%s" % e
@@ -1009,6 +1048,171 @@ def lark_cli(args, perm=None):
         return "lark-cli 超时（90 秒上限）"
     except Exception as e:
         return "执行失败：%s" % e
+
+
+# ==================================================================
+# 多媒体与知识库工具（参考 QwenLM/Qwen-Agent 的 image_gen / 视觉理解 /
+# retrieval 三件套，零第三方依赖实现）
+# ==================================================================
+
+# server.py 每次对话请求进来时注入当前模型的 API 配置，供下面两个工具复用
+_API_CTX = {"base": "", "key": "", "model": ""}
+
+
+def set_api_ctx(base, key, model):
+    _API_CTX.update({"base": (base or "").rstrip("/"), "key": key or "",
+                     "model": model or ""})
+
+
+_VISION_HINTS = ("glm-4v", "glm-4.5v", "glm-4.6v", "4o", "vision", "vl-",
+                 "claude", "gemini", "gpt-4-turbo", "qwen-vl", "doubao-vision")
+
+
+def _api_post(path, body, timeout=120):
+    base, key = _API_CTX["base"], _API_CTX["key"]
+    if not base:
+        raise RuntimeError("模型 API 未配置（还没开始过对话）")
+    req = urllib.request.Request(
+        base + path, data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json",
+                 "Authorization": "Bearer " + key}, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8", errors="replace"))
+
+
+def image_gen(prompt):
+    """文生图：智谱 CogView（cogview-3-flash 免费）。图片存 agent_data/images/。"""
+    prompt = (prompt or "").strip()
+    if not prompt:
+        return "画面描述为空"
+    data = _api_post("/images/generations", {"model": "cogview-3-flash",
+                                             "prompt": prompt})
+    url = ((data.get("data") or [{}])[0].get("url") or "")
+    if not url:
+        return "生成失败：%s" % str(data)[:200]
+    out_dir = os.path.join(APP_ROOT, "agent_data", "images")
+    os.makedirs(out_dir, exist_ok=True)
+    fname = "img_%s.png" % time.strftime("%Y%m%d_%H%M%S")
+    req = urllib.request.Request(url, headers={"User-Agent": _UA})
+    with urllib.request.urlopen(req, timeout=60) as r, \
+            open(os.path.join(out_dir, fname), "wb") as f:
+        f.write(r.read(10 * 1024 * 1024))
+    url_path = "/api/file?f=images/" + fname
+    return ("图片已生成保存：agent_data/images/%s（描述：%s）\n"
+            "回复用户时，必须在答案里嵌入下面这行 Markdown，让图片直接显示在对话中：\n"
+            "![生成的图片](%s)\n"
+            "并告诉用户：图片已存到 agent_data/images/，点侧边栏「🗂 产物画布」可随时查看。"
+            % (fname, prompt[:40], url_path))
+
+
+def analyze_image(image, question=""):
+    """看图：把本地路径或网络图片 URL 交给视觉模型分析（GLM-4V 免费）。
+    参考 Qwen-Agent image_analysis：question 为空则做通用描述。"""
+    image = (image or "").strip()
+    if not image:
+        return "缺少图片地址或本地路径"
+    if re.match(r"^https?://", image):
+        img_url = image
+    else:
+        p = image if os.path.isabs(image) else os.path.join(APP_ROOT, image)
+        p = os.path.abspath(p)
+        if not os.path.isfile(p):
+            return "找不到本地图片：%s" % p
+        import base64 as _b64
+        ext = os.path.splitext(p)[1].lower().lstrip(".") or "png"
+        mime = "jpeg" if ext in ("jpg", "jpeg") else ext
+        raw = open(p, "rb").read(8 * 1024 * 1024)
+        img_url = "data:image/%s;base64,%s" % (mime, _b64.b64encode(raw).decode())
+    model = _API_CTX["model"] or ""
+    if not any(h in model.lower() for h in _VISION_HINTS):
+        model = "glm-4v-flash"   # 主模型不带视觉时退到智谱免费视觉模型
+    q = question.strip() or "请详细描述这张图片的内容。"
+    data = _api_post("/chat/completions", {
+        "model": model, "stream": False, "max_tokens": 1024,
+        "messages": [{"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": img_url}},
+            {"type": "text", "text": q}]}]})
+    try:
+        return data["choices"][0]["message"]["content"] or "（模型没有返回内容）"
+    except Exception:
+        return "分析失败：%s" % str(data)[:200]
+
+
+# ---------- 知识库（参考 Qwen-Agent retrieval：切块 + 相关性检索） ----------
+# 文件放 agent_data/kb/（支持 txt/md），支持子文件夹。
+# 索引按文件 mtime 缓存：文件一改下次查询自动重建对应块，永远不读旧版本。
+
+_KB_CACHE = {}   # 文件路径 -> (mtime, [块])
+
+
+def _kb_chunk(path, size=400):
+    mtime = os.path.getmtime(path)
+    hit = _KB_CACHE.get(path)
+    if hit and hit[0] == mtime:
+        return hit[1]
+    try:
+        text = open(path, "rb").read().decode("utf-8", errors="replace")
+    except Exception:
+        return []
+    paras = [p.strip() for p in re.split(r"\n\s*\n|(?<=。)", text) if p.strip()]
+    chunks, buf = [], ""
+    for p in paras:
+        if len(buf) + len(p) <= size:
+            buf += ("" if not buf else "\n") + p
+        else:
+            if buf:
+                chunks.append(buf)
+            buf = p[:size]
+    if buf:
+        chunks.append(buf)
+    _KB_CACHE[path] = (mtime, chunks)
+    return chunks
+
+
+def _kb_tokens(s):
+    """中英混合简易分词：英文按词、中文按字（bigram 加权）。"""
+    words = re.findall(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]", s.lower())
+    out = list(words)
+    zh = [w for w in words if re.match(r"[\u4e00-\u9fff]", w)]
+    out += [a + b for a, b in zip(zh, zh[1:])]   # 中文 bigram 提升区分度
+    return out
+
+
+def kb_search(query, top_k=4):
+    """在 agent_data/kb/ 知识库里按相关性检索文档片段（零依赖 TF 打分）。
+    索引实时跟随文件变化：新增/修改/删除文档立即生效，无需重建。"""
+    query = (query or "").strip()
+    if not query:
+        return "检索词为空"
+    kb_dir = os.path.join(APP_ROOT, "agent_data", "kb")
+    if not os.path.isdir(kb_dir):
+        return ("知识库为空。把 .txt / .md 文档放进 agent_data/kb/ 文件夹"
+                "（可建子文件夹）即可自动收录。")
+    q_tokens = _kb_tokens(query)
+    q_set = set(q_tokens)
+    scored = []
+    for root, _dirs, files in os.walk(kb_dir):
+        for fn in files:
+            if not fn.lower().endswith((".txt", ".md")):
+                continue
+            path = os.path.join(root, fn)
+            for i, chunk in enumerate(_kb_chunk(path)):
+                c_set = set(_kb_tokens(chunk))
+                if not c_set:
+                    continue
+                inter = q_set & c_set
+                if not inter:
+                    continue
+                score = len(inter) / (len(q_set) ** 0.5 * len(c_set) ** 0.25)
+                scored.append((score, fn, i, chunk))
+    if not scored:
+        return "知识库里没有找到与「%s」相关的内容" % query
+    scored.sort(reverse=True)
+    out = []
+    for score, fn, i, chunk in scored[:max(1, min(int(top_k or 4), 8))]:
+        out.append("[%s 片段%d 相关度%.2f]\n%s" % (fn, i + 1, score,
+                                                 chunk[:MAX_CHARS // 4]))
+    return "\n\n".join(out)
 
 
 # ==================================================================
@@ -1096,8 +1300,12 @@ def mcp_init():
             continue
         _MCP_STATUS[sname] = "starting"   # 首次运行 npx/uvx 会下载包，可能要等几十秒
         try:
+            # Windows 上 npx/uvx 实际是 .cmd 批处理，不经 shell 时 Popen 找不到，
+            # 用 shutil.which 解析出完整路径（自动尝试 PATHEXT：.cmd/.exe/.bat）。
+            import shutil as _shutil
+            cmd_path = _shutil.which(cmd) or _shutil.which(cmd + ".cmd") or cmd
             proc = subprocess.Popen(
-                [cmd] + list(srv.get("args") or []),
+                [cmd_path] + list(srv.get("args") or []),
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 cwd=srv.get("cwd") or None,
