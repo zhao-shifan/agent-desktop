@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 Aria 智能体 · 本地服务
 零第三方依赖（PDF/Office 解析用可选库），双击 start.bat 或运行:
@@ -12,6 +12,7 @@ import json
 import os
 import re
 import socket
+import threading
 import time
 import subprocess
 import concurrent.futures
@@ -134,6 +135,39 @@ def wallpaper_card_ids():
     return sorted(ids)
 
 
+def _est_len(msgs):
+    """粗略估算消息列表总字符数（Qwen-Agent trim_history 的轻量版）。"""
+    total = 0
+    for m in msgs:
+        total += len(str(m.get("content") or ""))
+        for tc in (m.get("tool_calls") or []):
+            total += len(str((tc.get("function") or {}).get("arguments") or ""))
+    return total
+
+
+def _trim_history(msgs, budget=120000):
+    """上下文预算裁剪：超预算时压缩较早的 tool 结果与历史正文（保留 system）。
+    参考 Qwen-Agent 的 trim_history：近几轮逐字保留，老消息摘要化，防上下文爆炸。"""
+    if _est_len(msgs) <= budget:
+        return msgs
+    keep_recent = 8          # 最近 8 条逐字保留
+    n = len(msgs)
+    out = []
+    for i, m in enumerate(msgs):
+        role = m.get("role")
+        if role == "system" or i >= n - keep_recent:
+            out.append(m)
+            continue
+        c = str(m.get("content") or "")
+        if role == "tool":
+            out.append({**m, "content": "（历史工具结果已省略）" if c else c})
+        elif len(c) > 600:
+            out.append({**m, "content": c[:600] + "…（历史消息已截断）"})
+        else:
+            out.append(m)
+    return out
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -141,8 +175,15 @@ class Handler(BaseHTTPRequestHandler):
         pass  # 静默日志
 
     # ---------- 工具 ----------
+    MAX_BODY = 50 * 1024 * 1024   # 请求体上限 50MB，防内存放大
+
     def _json_body(self):
-        length = int(self.headers.get("Content-Length", 0))
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except (TypeError, ValueError):
+            raise ValueError("Content-Length 不合法")
+        if length > self.MAX_BODY:
+            raise ValueError("请求体超过 50MB 上限")
         raw = self.rfile.read(length)
         return json.loads(raw.decode("utf-8"))
 
@@ -660,11 +701,14 @@ class Handler(BaseHTTPRequestHandler):
             upstream.close()
 
     # ---------- 工具调用循环 ----------
+    _sse_lock = threading.Lock()   # 心跳线程与主线程并发写 SSE，必须串行化
+
     def _sse(self, obj):
         """发一条 SSE 事件（手动 chunked）。"""
         chunk = ("data: " + json.dumps(obj, ensure_ascii=False) + "\n\n").encode("utf-8")
-        self.wfile.write(f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n")
-        self.wfile.flush()
+        with self._sse_lock:
+            self.wfile.write(f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n")
+            self.wfile.flush()
 
     def _chat_with_tools(self, base, key, messages, build_body, perm):
         """模型要工具 → 本地执行 → 结果回灌 → 最多 4 轮，最后把答案流式吐给前端。"""
@@ -679,7 +723,7 @@ class Handler(BaseHTTPRequestHandler):
         def call_upstream(msgs, _attempt=0):
             req = urllib.request.Request(
                 base + "/chat/completions",
-                data=json.dumps(build_body(msgs, False, True)).encode("utf-8"),
+                data=json.dumps(build_body(_trim_history(msgs), False, True)).encode("utf-8"),
                 headers={"Content-Type": "application/json",
                          "Authorization": f"Bearer {key}"},
                 method="POST",
@@ -719,8 +763,8 @@ class Handler(BaseHTTPRequestHandler):
                 _utext = next((m.get("content") for m in reversed(messages)
                                if m.get("role") == "user" and isinstance(m.get("content"), str)), "")
                 if _utext and re.search(
-                        r"(是谁|知道.{0,16}吗|最新|最近|今天|现在|热点|新闻|多少钱|"
-                        r"发布|上线|版本|搜一?下|查一?下|怎么样了|哪一年|第几)", _utext):
+                        r"(最新|近日|热点|新闻|多少钱|价格|哪一年|哪年|是谁|搜一?下|查一?下)",
+                        _utext):
                     # 问答改写：去掉口语外衣，留下核心搜索词（DeepSeek 的 query rewrite 轻量版）
                     _q = re.sub(r"^(你知道|请问|帮我|麻烦|给我|帮我查?一?下|查一下|搜一下|告诉我|你知道.*吗)+",
                                 "", _utext.strip())
@@ -798,7 +842,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._sse({"tool": {"id": tc.get("id"), "name": name,
                                         "status": "done", "preview": str(result)[:400]}})
                     msgs.append({"role": "tool", "tool_call_id": tc.get("id"),
-                                 "content": result})
+                                 "content": str(result)[:tools_layer.MAX_CHARS]})   # 统一截断，防上下文爆炸
             else:
                 reached_limit = True
 
@@ -923,8 +967,11 @@ def open_app_window(url):
 
 
 def main():
+    # 默认只监听本机：0.0.0.0 无鉴权裸奔会让同一 WiFi 里的任何人
+    # 白嫖你的 API 额度、甚至骗走你的 Key。需要手机访问时用 --lan 显式开启
+    host = "0.0.0.0" if "--lan" in sys.argv else "127.0.0.1"
     try:
-        server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+        server = ThreadingHTTPServer((host, PORT), Handler)
     except OSError:
         # 端口被占：通常已经有一个实例在跑（比如双击了两次），直接开窗口即可
         open_app_window(f"http://127.0.0.1:{PORT}")
@@ -933,7 +980,10 @@ def main():
     ip = lan_ip()
     print("小凡智能体服务已启动")
     print(f"  本机访问:  http://127.0.0.1:{PORT}")
-    print(f"  手机访问:  http://{ip}:{PORT}   （手机需与电脑同一 WiFi，页面里有扫码入口）")
+    if host == "0.0.0.0":
+        print(f"  手机访问:  http://{ip}:{PORT}   （手机需与电脑同一 WiFi，页面里有扫码入口）")
+    else:
+        print("  手机访问:  当前仅本机可访问；要让手机扫码使用，请用 --lan 参数启动")
     print("  按 Ctrl+C 停止")
     # exe / --open 模式：自动打开应用窗口
     import threading
