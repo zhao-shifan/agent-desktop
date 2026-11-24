@@ -21,6 +21,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: read   # deploy-pages@v4 拉取 github-pages artifact 需要
 
 concurrency:
   group: pages
