@@ -387,7 +387,11 @@ body::before{
 }
 .file-card .fc-name{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
 .file-card .fc-size{color:var(--faint);font-size:11px;flex-shrink:0}
-.file-card .fc-dl{color:var(--accent2);flex-shrink:0}
+/* 预览/下载双按钮（千问/豆包同款） */
+.file-card .fc-btn{flex-shrink:0;font-size:11.5px;padding:4px 10px;border-radius:8px;
+  border:1px solid var(--line2);color:var(--dim);cursor:pointer;transition:.15s;white-space:nowrap}
+.file-card .fc-btn:hover{color:var(--txt);border-color:var(--accent);background:var(--accent-dim)}
+.file-card .fc-btn.fc-dl{color:var(--accent2);border-color:var(--accent-dim)}
 .content{font-size:15px;line-height:1.72;color:var(--txt);word-break:break-word}
 .msg.user .content{color:#cfccc4}
 .content p{margin:0 0 .45em}
@@ -2896,11 +2900,14 @@ const FC_BADGES = {
 function fileCardHTML(idx, name, size, onclick){
   const ext = (name.match(/\.([a-z0-9]+)/i)||[])[1]?.toLowerCase() || "";
   const [label,color] = FC_BADGES[ext] || ["FILE","linear-gradient(135deg,#9ca3af,#6b7280)"];
-  return `<div class="file-card" data-name="${esc(name)}" onclick="${onclick}">
+  // 手机窄屏：预览走全屏弹层（手机端没有侧边栏预览），桌面走右侧停靠预览栏
+  const pv = onclick.includes("printMsg") ? onclick : `innerWidth<=760?previewDoc(${idx}):canvasOpenFile(${idx})`;
+  return `<div class="file-card" data-name="${esc(name)}">
     <span class="fc-icon" style="background:${color}">${label}</span>
     <span class="fc-name">${esc(name)}</span>
     <span class="fc-size">${size}</span>
-    <span class="fc-dl">⬇</span>
+    <span class="fc-btn" onclick="event.stopPropagation();${pv}">👁 预览</span>
+    <span class="fc-btn fc-dl" onclick="event.stopPropagation();downloadStored(${idx})">⬇ 下载</span>
   </div>`;
 }
 /* 把成品文件卡片插到该条回复的消息操作区上方 */
@@ -3043,10 +3050,10 @@ function rawMsgText(idx){
   const m = history[idx];
   return typeof m.content==="string" ? m.content : m.content?.[0]?.text || "";
 }
-/* 文档预览：先看排版效果再决定下载（参考豆包的导出前预览交互） */
+/* 文档预览：先看排版效果再决定下载（参考豆包的导出前预览交互）；预览内容同样只收正文 */
 function previewDoc(idx){
   const m = history[idx];
-  const t = typeof m.content==="string" ? m.content : m.content[0]?.text || "";
+  const t = docBody(typeof m.content==="string" ? m.content : m.content[0]?.text || "");
   $("docPrevBody").innerHTML = mdRender(t);
   $("docPrevDownload").onclick = ()=> exportDoc(idx);
   $("docPreview").classList.add("show");
@@ -3054,7 +3061,7 @@ function previewDoc(idx){
 
 async function exportDoc(idx){
   const m = history[idx];
-  const t = typeof m.content==="string" ? m.content : m.content[0]?.text || "";
+  const t = docBody(typeof m.content==="string" ? m.content : m.content[0]?.text || "");
   if(STANDALONE){ await downloadDocLocal(t); return; }   // 独立模式直接本地生成 .docx/.doc
   setStatus("正在生成 Word 文档…");
   try{
@@ -4187,7 +4194,7 @@ function allSkills(){
   return [...customSkills, ...official, ...SKILLS];
 }
 /* 无论是否启用技能都注入的导出能力提示，防止模型自称无法生成文件 */
-const DOC_NOTE = {role:"system", content:"【能力提示】本应用具备文件交付能力：当用户要求 Word/Excel/Markdown/TXT/PDF 文件时（如“给我一份word”），你只需在回复中输出完整的排版成稿（Markdown 多级标题+列表+表格），应用会自动在该条回复下方挂上对应格式的下载文件卡片，并把长文折叠成摘要，不会刷屏。要点：1)内容必须完整可直接使用；2)不要回答“无法生成文件”，不要提供手动创建教程或生成代码；3)要 Excel 时正文必须包含至少一个 Markdown 表格；4)正文就是文件内容本身，开头最多一句话说明，结尾不要再重复内容或加“希望对你有帮助”之类的废话。"};
+const DOC_NOTE = {role:"system", content:"【能力提示】本应用具备文件交付能力：当用户要求 Word/Excel/Markdown/TXT/PDF 文件时（如“给我一份word”），你只需在回复中输出完整的排版成稿（Markdown 多级标题+列表+表格），应用会自动在该条回复下方挂上对应格式的下载文件卡片，并把长文折叠成摘要，不会刷屏。要点：1)内容必须完整可直接使用；2)不要回答“无法生成文件”，不要提供手动创建教程或生成代码；3)要 Excel 时正文必须包含至少一个 Markdown 表格；4)正文就是文件内容本身，开头最多一句话说明，结尾不要再重复内容或加“希望对你有帮助”之类的废话；5)【严格执行】用户明确指定了文档内容（如“只有文字你好”“就写一句话XX”）时，文件内容必须严格等于用户指定的内容，一个字都不许扩写，严禁自行添加摘要/正文/结论/建议等章节结构，也不要加任何说明性文字。"};
 /* 小凡的女朋友：张子媛（内置设定，只在相关语境下自然提起） */
 const GIRLFRIEND_RULES =
 "【女朋友·张子媛】\n" +
