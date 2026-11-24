@@ -1,7 +1,9 @@
 # 分支规则（每次改动前必读）
 
+0. **主开发分支是 main：所有代码改动先在 main 上做、main 必须始终保持最新；zzy 和 v1 是同步镜像，改完 main 后同步过去。**（严禁只在 zzy 上开发）
 1. **「小凡的女朋友·张子媛」人设内容（/girlfriend 指令、人设文案、相关记忆）只允许存在于 zzy 分支，严禁合并进 main 和 v1 分支。**
-   - 如果要把 zzy 的其他修复（样式、bug 修复等）同步到 main/v1，必须 cherry-pick 单个提交或手动摘取，禁止直接 merge 整个 zzy。
-   - 提交前检查 diff 里是否带出人设相关内容（搜索：张子媛、girlfriend、女朋友）。
-2. APK 打包（mobile/build-www.mjs）需要包含 wallpapers 目录（用户已确认打进 APK，约 +6MB）。
+   - main → v1/zzy 可以正常 merge；zzy → main/v1 禁止直接 merge，必须 cherry-pick 或手动摘取，并剥离全部人设内容。
+   - 提交前检查 diff 里是否带出人设相关内容（搜索：张子媛、girlfriend、女朋友、GIRLFRIEND）。
+2. APK 打包（mobile/build-www.mjs）需要包含 wallpapers 目录（用户已确认打进 APK，约 +6MB）；每次发版后 `cd mobile && node build-www.mjs` 重打 www，APK 走 build-apk workflow。
 3. 手机端弹窗样式必须与桌面端一致：居中断层，禁止贴底抽屉（sheetUp / align-items:flex-end）。
+4. 手机端（宽度 ≤760px）没有侧边栏预览：文件卡片用「👁 预览 + ⬇ 下载」双按钮，预览走全屏弹层（previewDoc / previewFileCard）。
