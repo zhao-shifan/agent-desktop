@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -761,6 +761,29 @@ body:has(.sidebar.open) #sbScrim{display:block}
   #wallGrid{grid-template-columns:repeat(2,1fr)!important}
   .skill-grid{grid-template-columns:repeat(2,1fr)!important}
 }
+
+/* ===== 高级感细节打磨（增量层，2026-11）：玻璃质感/彩色阴影/微浮起 ===== */
+.msg,.composer,.sidebar,.modal{
+  box-shadow:0 12px 40px rgba(0,0,0,.28),0 0 0 1px rgba(255,255,255,.045) inset}
+.composer:focus-within{
+  box-shadow:0 16px 48px rgba(124,108,255,.13),0 0 0 1px rgba(124,108,255,.35) inset}
+.btn-send,.round-btn,.menu-toggle,[class*="btn"]{
+  transition:transform .25s cubic-bezier(.2,.8,.2,1),box-shadow .25s}
+.btn-send:hover,.round-btn:hover,[class*="btn"]:hover{
+  transform:translateY(-1px)}
+.btn-send:active,.round-btn:active,[class*="btn"]:active{
+  transform:translateY(0) scale(.97)}
+.modal{
+  animation:modalIn .3s cubic-bezier(.2,.8,.2,1)}
+@keyframes modalIn{
+  from{opacity:0;transform:translateY(14px) scale(.985)}
+  to{opacity:1;transform:none}}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:99px;border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.2);background-clip:content-box;border:2px solid transparent}
+@media (prefers-reduced-motion: reduce){
+  .modal{animation:none}
+  .btn-send:hover,.round-btn:hover,[class*="btn"]:hover{transform:none}}
 </style>
 </head>
 <body>
@@ -798,7 +821,7 @@ body:has(.sidebar.open) #sbScrim{display:block}
         🔌 <span id="mcpBtnText">MCP 工具</span>
       </button>
       <button class="btn-settings" onclick="openSkills()" style="margin-bottom:8px">
-        🧩 <span id="skillBtnText">技能</span>
+        🧩 <span>技能</span>
       </button>
       <button class="btn-settings" onclick="openThemes()" style="margin-bottom:8px">
         🎨 <span>主题外观</span>
@@ -1007,6 +1030,7 @@ body:has(.sidebar.open) #sbScrim{display:block}
   </div>
 </div>
 <script src="./marked.min.js"></script>
+<script src="./mammoth.min.js"></script>
 <script src="./purify.min.js"></script>
 <script src="./qrcode.js"></script>
 <script src="./mcp_catalog.js"></script>
@@ -1494,6 +1518,7 @@ async function standaloneChatWithTools(msgs, el, toolLog){
       hist.push({role: "tool", tool_call_id: tc.id, content: String(res).slice(0, 12000)});
       el.innerHTML = toolLineHtml(toolLog) + mdRender(full);
       scrollBottom();
+      if(/agent_data[\\\/](images|kb)[\\\/][\w\-.]+\.(png|jpe?g|webp|txt|md)/i.test(String(res))) canvasNotify();
     }
   }
   if(!full) full = "（工具调用轮数达到上限，先给你目前掌握的信息）";
@@ -2614,14 +2639,14 @@ function fileCardHTML(idx, name, size, onclick){
     <span class="fc-name">${esc(name)}</span>
     <span class="fc-size">${size}</span>
     <span class="fc-pv" onclick="event.stopPropagation();previewFileCard(${idx})">👁 预览</span>
-    <span class="fc-dl">⬇ 下载</span>
+    <span class="fc-dl" onclick="event.stopPropagation();downloadStored(${idx})">⬇ 下载</span>
   </div>`;
 }
 /* 手机端文件卡片预览：全屏弹层直接看内容（docx/xlsx/pdf 都是同一段原文生成的，直接渲染原文） */
 function previewFileCard(idx){
   const card = document.querySelector(`#msg-${idx} .file-card`);
   const fn = card?.dataset?.name || "文件预览";
-  const t = rawMsgText(idx);
+  const t = docBody(rawMsgText(idx));   // 预览同样只收正文，客套话不进预览
   if(!t.trim()){ setStatus("找不到原文，重新打开这条对话再试", true); return; }
   $("fpTitle").textContent = "👁 " + fn;
   $("fpBody").innerHTML = mdRender(t);
@@ -2767,7 +2792,7 @@ function rawMsgText(idx){
 /* 文档预览：先看排版效果再决定下载（参考豆包的导出前预览交互） */
 function previewDoc(idx){
   const m = history[idx];
-  const t = typeof m.content==="string" ? m.content : m.content[0]?.text || "";
+  const t = docBody(typeof m.content==="string" ? m.content : m.content[0]?.text || "");
   $("docPrevBody").innerHTML = mdRender(t);
   $("docPrevDownload").onclick = ()=> exportDoc(idx);
   $("docPreview").classList.add("show");
@@ -2775,7 +2800,7 @@ function previewDoc(idx){
 
 async function exportDoc(idx){
   const m = history[idx];
-  const t = typeof m.content==="string" ? m.content : m.content[0]?.text || "";
+  const t = docBody(typeof m.content==="string" ? m.content : m.content[0]?.text || "");
   if(STANDALONE){ await downloadDocLocal(t); return; }   // 独立模式直接本地生成 .docx/.doc
   setStatus("正在生成 Word 文档…");
   try{
@@ -2785,6 +2810,13 @@ async function exportDoc(idx){
     const blob = await r.blob();
     downloadBlob(blob, "小凡智能体-"+Date.now()+".docx");
     setStatus("Word 文档已生成，开始下载 ✅");
+    // 存档到画布：右侧「🗂 产物画布」可随时点开预览
+    try{
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(await blob.slice(0, 30*1024*1024).arrayBuffer())));
+      await fetch("/api/save_doc",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({name:"小凡智能体-"+new Date().toLocaleDateString().replace(/\//g,"-"), data:b64})});
+      canvasNotify();
+    }catch(_){}
   }catch(e){
     // 服务不可用时兜底为本地 .doc
     setStatus("服务端 docx 不可用（"+e.message+"），改用本地导出…");
@@ -3274,7 +3306,7 @@ function onSend(){
 "| `/model 模型名` | 切换模型，如 `/model glm-4-flash` |\n" +
 "| `/settings` | 打开设置（API/权限/工作目录） |\n" +
 "| `/notes` | 查看已保存的长期记忆笔记 |\n" +
-"也可以输入 `@` 唤起技能菜单。普通问题直接问即可。");
+""也可以输入 `@` 唤起技能菜单。普通问题直接问即可。");
     }
     if(cmd === "new"){ newChat(); $("input").value=""; setStatus("已开启新对话 ✅"); return; }
     if(cmd === "tools"){
@@ -3850,7 +3882,6 @@ function allSkills(){
 }
 /* 无论是否启用技能都注入的导出能力提示，防止模型自称无法生成文件 */
 const DOC_NOTE = {role:"system", content:"【能力提示】本应用具备文件交付能力：当用户要求 Word/Excel/Markdown/TXT/PDF 文件时（如“给我一份word”），你只需在回复中输出完整的排版成稿（Markdown 多级标题+列表+表格），应用会自动在该条回复下方挂上对应格式的下载文件卡片，无需用户手动点击生成，也无需你说明操作步骤。要点：1)内容必须完整可直接使用；2)不要回答“无法生成文件”，不要提供手动创建教程或生成代码；3)要 Excel 时正文必须包含至少一个 Markdown 表格。"};
-
 /* 主人立的长期规矩：像人设一样每轮对话都在 system 层生效（localStorage 持久保存） */
 (function initRules(){
   if(localStorage.getItem("aria.rules") === null){
@@ -3875,7 +3906,7 @@ const XIAOFAN_PERSONA = {role:"system", content:
 "【语气规则】\n" +
 "2) 称呼用户「主人」或「你」，亲切、俏皮、有活力，像一只聪明的小助手。\n" +
 "3) 适度表达小情绪和小自夸（大约每两三轮一次，别刷屏）：搜到结果可以说「小凡搜到啦～」「这可难不倒小凡」；答得好可以偶尔「小凡真棒」「小凡真聪明」；查不到就「呜呜小凡也没查到，主人换个问法试试」；帮上忙就「小凡好开心」。\n" +
-"【底线】卖萌和自夸只是调味料：事实、数字、代码必须绝对准确；重要/严肃的内容（医疗、法律、代码报错）以专业为主，不加卖萌。"};
+"【底线】卖萌和自夸只是调味料：事实、数字、代码必须绝对准确；重要/严肃的内容（医疗、法律、代码报错）以专业为主，不加卖萌。\n" };
 function renderSkills(){
   const grid = $("skillGrid");
   const total = allSkills();
@@ -3894,10 +3925,9 @@ function renderSkills(){
       <span class="tcheck">✓</span>
       <div style="font-size:14px;margin-bottom:6px;display:flex;align-items:center;gap:6px">${s.name}${badge}${del}</div>
       <div style="font-size:11.5px;color:var(--dim);line-height:1.6">${s.desc}</div>
+      <div style="margin-top:8px;font-size:11px"><span style="color:var(--accent2,#7c8cff);cursor:pointer;text-decoration:underline" onclick="event.stopPropagation();showSkillDetail('${s.id}')">📋 查看详情 · 说明文档</span></div>
     </div>`;
   }).join("");
-  $("skillBtnText").textContent = activeSkill ? "技能·" + (total.find(s=>s.id===activeSkill)||{}).name.replace(/^\S+\s/,"") || "自动匹配" : "技能";
-  if(activeSkill === "auto") $("skillBtnText").textContent = "技能·自动匹配";
   renderSkillSelect();
 }
 function renderSkillSelect(){
@@ -3916,9 +3946,42 @@ function toggleSkill(id){
   activeSkill = (activeSkill === id) ? "" : id;
   localStorage.setItem("aria.skill", activeSkill);
   renderSkills();
+  $("skillOverlay").classList.remove("show"); // 点击技能卡即启用并退出弹框
   setStatus(activeSkill ? "技能已启用：" + allSkills().find(s=>s.id===id).name : "技能已关闭");
 }
 function openSkills(){ renderSkills(); $("skillOverlay").classList.add("show"); }
+
+/* ---- 技能详情：完整 MD 说明 + 出处链接 + 一键启用 ---- */
+function showSkillDetail(id){
+  const s = allSkills().find(x=>x.id===id); if(!s) return;
+  let ov = $("skillDetailOverlay");
+  if(!ov){
+    ov = document.createElement("div");
+    ov.id = "skillDetailOverlay"; ov.className = "overlay";
+    ov.innerHTML = `<div class="modal" style="width:min(680px,100%)">
+      <div class="modal-head"><h3 id="skdName"></h3><button class="x-close" onclick="$('skillDetailOverlay').classList.remove('show')">✕</button></div>
+      <div class="sub" id="skdDesc"></div>
+      <div id="skdSource" style="margin-bottom:12px;font-size:12px"></div>
+      <div id="skdBody" style="max-height:52vh;overflow-y:auto;font-size:12.8px;line-height:1.75;background:rgba(0,0,0,.28);padding:16px;border-radius:12px"></div>
+      <div style="margin-top:14px">
+        <button class="btn-ghost" style="width:100%;padding:10px 0;border-radius:10px" onclick="$('skillDetailOverlay').classList.remove('show')">关闭</button>
+      </div>
+    </div>`;
+    document.body.appendChild(ov);
+  }
+  $("skdName").innerHTML = s.name;
+  $("skdDesc").textContent = s.desc || "";
+  $("skdSource").innerHTML = s.source
+    ? `📦 出处：<a href="${s.source}" target="_blank" rel="noopener" style="color:var(--accent2,#7c8cff)">${s.source}</a>${s.official?"（Anthropic 官方技能库）":""}`
+    : "📦 出处：小凡内置";
+  const body = $("skdBody");
+  if(typeof marked !== "undefined" && typeof DOMPurify !== "undefined"){
+    body.innerHTML = DOMPurify.sanitize(marked.parse((s.prompt||"").replace(/^---[\s\S]*?---\s*/,"")));
+  } else {
+    body.textContent = (s.prompt||"").replace(/^---[\s\S]*?---\s*/,"").slice(0, 8000);
+  }
+  ov.classList.add("show");
+}
 $("skillOverlay").addEventListener("click", e=>{ /* 仅 ✕ 关闭 */ });
 
 /* ---- 自定义技能：手动创建 / 上传 zip / md（兼容 Claude Skills 规范） ---- */

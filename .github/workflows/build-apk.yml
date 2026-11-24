@@ -4,6 +4,11 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+    branches: ["zzy", "main", "v1"]
+    paths:
+      - "index.html"
+      - "mobile/**"
+      - ".github/workflows/build-apk.yml"
 
 jobs:
   apk:
