@@ -5,7 +5,7 @@
    - /api/* 一律走网络，不缓存（对话、文件解析不能拿旧结果）
    - 壁纸大图 cache-first + 后台更新
 */
-const VERSION = "xfan-v9-min";   // v9: 停靠式预览栏 + 文件卡片双按钮 + 导出清洗；重试 Pages 部署
+const VERSION = "xfan-v5";   // v5: 图片压缩/配额摘图不删话/run_command 黑名单+确认门/docx 本地化/防注入
 const SHELL_CACHE = VERSION + "-shell";
 const IMG_CACHE = VERSION + "-img";
 const SHELL = [
@@ -18,7 +18,6 @@ const SHELL = [
   "./marked.min.js",
   "./purify.min.js",
   "./html-docx.js",
-  "./mammoth.min.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/icon-maskable-512.png",
