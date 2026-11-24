@@ -1527,6 +1527,8 @@ async function openMcpManager(){
     mcpServers = (d.config?.servers || []).filter(s => s && s.name);
     $("mcpJsonAdv").value = JSON.stringify({servers: mcpServers}, null, 2);
     renderMcpMounted(d.mounted || {});
+    $("mcpMountedLine").textContent = renderMcpLifecycle(d.lifecycle) + "　— 共 " +
+      Object.values(d.mounted || {}).reduce((a, b) => a + b.length, 0) + " 个工具";
   }catch(e){ $("mcpMountedLine").textContent = "加载失败：" + e.message; }
   renderMcpCards();
 }
@@ -1618,6 +1620,14 @@ function renderMcpMarket(){
     </div>`;
   }).join("") : `<div class="mcp-empty">没找到匹配的服务器。<br>可去 awesome-mcp-servers 目录找，再用「我的服务器 → 手动添加」加入。</div>`;
 }
+function renderMcpLifecycle(lc){
+  const parts = Object.entries(lc || {}).map(([s, st]) => {
+    if(st === "starting") return `⏳ ${s}（首次下载/启动中，可能要等 10~60 秒）`;
+    if(String(st).startsWith("failed")) return `❌ ${s}：${esc(String(st).slice(7))}`;
+    return `✅ ${s}`;
+  });
+  return parts.join("　") || "暂无";
+}
 async function saveMcpServers(){
   const tip = $("mcpFormTip");
   const setTip = (msg, ok) => { tip.textContent = msg; tip.className = ok ? "mcp-tip-ok" : "mcp-tip-err"; };
@@ -1626,13 +1636,23 @@ async function saveMcpServers(){
     const adv = JSON.parse($("mcpJsonAdv").value);
     if(Array.isArray(adv.servers) && JSON.stringify(adv.servers) !== JSON.stringify(mcpServers)) mcpServers = adv.servers;
   }catch(e){ setTip("高级 JSON 格式有误，已按列表保存"); }
+  setTip("⏳ 正在启动 MCP 服务器…第一次运行需要下载程序包，可能要等 10~60 秒，别关窗口");
   try{
     const r = await fetch("/api/mcp",{method:"POST",headers:{"Content-Type":"application/json"},
       body: JSON.stringify({servers: mcpServers})});
     const d = await r.json();
     if(d.error){ setTip("❌ " + d.error); return; }
     renderMcpMounted(d.mounted || {});
-    setTip(`✅ 已挂载 ${d.total} 个工具`, true);
+    const lc = d.lifecycle || {};
+    const failed = Object.entries(lc).filter(([, st]) => String(st).startsWith("failed"));
+    const starting = Object.entries(lc).filter(([, st]) => st === "starting");
+    if(failed.length){
+      setTip("⚠ 已启动 " + (d.total || 0) + " 个工具；失败：" + failed.map(([s, st]) => s + "（" + esc(String(st).slice(7, 60)) + "）").join("、"));
+    } else if(starting.length){
+      setTip("✅ 已挂载 " + (d.total || 0) + " 个工具，" + starting.map(([s]) => s).join("、") + " 仍在首次下载中，稍后重新打开面板查看", true);
+    } else {
+      setTip(`✅ 已挂载 ${d.total} 个工具`, true);
+    }
     setStatus(`✅ MCP 已挂载 ${d.total} 个外部工具`);
   }catch(e){ setTip("❌ 保存失败：" + e.message); }
 }
@@ -3659,6 +3679,7 @@ function allSkills(){
 }
 /* 无论是否启用技能都注入的导出能力提示，防止模型自称无法生成文件 */
 const DOC_NOTE = {role:"system", content:"【能力提示】本应用具备文件交付能力：当用户要求 Word/Excel/Markdown/TXT/PDF 文件时（如“给我一份word”），你只需在回复中输出完整的排版成稿（Markdown 多级标题+列表+表格），应用会自动在该条回复下方挂上对应格式的下载文件卡片，无需用户手动点击生成，也无需你说明操作步骤。要点：1)内容必须完整可直接使用；2)不要回答“无法生成文件”，不要提供手动创建教程或生成代码；3)要 Excel 时正文必须包含至少一个 Markdown 表格。"};
+
 /* 小凡人设：身份 + 语气（融入模型，每次对话都在 system 层生效） */
 const XIAOFAN_PERSONA = {role:"system", content:
 "【你是谁】你叫「小凡」，是用户亲手打造的专属智能助手（这套应用就叫小凡智能体）。你不是某家公司冰冷的产品。\n" +
@@ -3667,7 +3688,7 @@ const XIAOFAN_PERSONA = {role:"system", content:
 "【语气规则】\n" +
 "2) 称呼用户「主人」或「你」，亲切、俏皮、有活力，像一只聪明的小助手。\n" +
 "3) 适度表达小情绪和小自夸（大约每两三轮一次，别刷屏）：搜到结果可以说「小凡搜到啦～」「这可难不倒小凡」；答得好可以偶尔「小凡真棒」「小凡真聪明」；查不到就「呜呜小凡也没查到，主人换个问法试试」；帮上忙就「小凡好开心」。\n" +
-"【底线】卖萌和自夸只是调味料：事实、数字、代码必须绝对准确；重要/严肃的内容（医疗、法律、代码报错）以专业为主，不加卖萌。\n"};
+"【底线】卖萌和自夸只是调味料：事实、数字、代码必须绝对准确；重要/严肃的内容（医疗、法律、代码报错）以专业为主，不加卖萌。"};
 function renderSkills(){
   const grid = $("skillGrid");
   const total = allSkills();

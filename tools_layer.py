@@ -1020,6 +1020,7 @@ def lark_cli(args, perm=None):
 
 _MCP_PROCS = {}        # server名 -> Popen
 _MCP_TOOLS = {}        # server名 -> [ {name, description, inputSchema} ]
+_MCP_STATUS = {}       # server名 -> starting / ready / failed:原因
 _MCP_LOCK = threading.Lock()
 _MCP_NEXT_ID = [1]
 
@@ -1068,11 +1069,17 @@ def mcp_reset():
             pass
     _MCP_PROCS.clear()
     _MCP_TOOLS.clear()
+    _MCP_STATUS.clear()
 
 
 def mcp_status():
     """返回当前挂载概览（服务器名 → 工具名列表）。"""
     return {s: [t["name"] for t in tools] for s, tools in _MCP_TOOLS.items()}
+
+
+def mcp_lifecycle():
+    """返回每个服务器的生命周期状态（starting/ready/failed），前端展示首次下载进度用。"""
+    return dict(_MCP_STATUS)
 
 
 def mcp_init():
@@ -1087,6 +1094,7 @@ def mcp_init():
         cmd = srv.get("command") or ""
         if not sname or not cmd or sname in _MCP_PROCS:
             continue
+        _MCP_STATUS[sname] = "starting"   # 首次运行 npx/uvx 会下载包，可能要等几十秒
         try:
             proc = subprocess.Popen(
                 [cmd] + list(srv.get("args") or []),
@@ -1097,10 +1105,10 @@ def mcp_init():
             _MCP_PROCS[sname] = proc
             _mcp_rpc(proc, "initialize", {
                 "protocolVersion": "2024-11-05", "capabilities": {},
-                "clientInfo": {"name": "xiaofan", "version": "1.7"}}, timeout=20)
+                "clientInfo": {"name": "xiaofan", "version": "1.9"}}, timeout=120)
             proc.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
             proc.stdin.flush()
-            res = _mcp_rpc(proc, "tools/list", {}, timeout=20)
+            res = _mcp_rpc(proc, "tools/list", {}, timeout=60)
             tools = []
             for t in (res.get("tools") or []):
                 tname = "%s" % t.get("name", "")
@@ -1109,8 +1117,10 @@ def mcp_init():
                     "description": "[MCP:%s] %s" % (sname, t.get("description", "")),
                     "inputSchema": t.get("inputSchema") or {"type": "object", "properties": {}}})
             _MCP_TOOLS[sname] = tools
+            _MCP_STATUS[sname] = "ready"
             print("[MCP] %s 已连接，挂载 %d 个工具" % (sname, len(tools)), flush=True)
         except Exception as e:
+            _MCP_STATUS[sname] = "failed:%s" % str(e)[:120]
             print("[MCP] %s 启动失败，已跳过：%s" % (sname, e), flush=True)
             try:
                 _MCP_PROCS.pop(sname, None).kill()
