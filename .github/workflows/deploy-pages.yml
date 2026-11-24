@@ -50,5 +50,18 @@ jobs:
         with:
           path: _site
 
+      # 等 artifact API 列表可见（服务端延迟时 deploy-pages 会报 Found 0 artifacts）
+      - name: 等待 artifact 可见
+        run: |
+          for i in 1 2 3 4 5 6; do
+            n=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --jq '.artifacts | length' 2>/dev/null || echo 0)
+            echo "第 $i 次查询：$n 个 artifact"
+            [ "$n" -ge 1 ] && exit 0
+            sleep 15
+          done
+          echo "::warning::artifact 仍未可见，继续尝试部署"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - id: deployment
         uses: actions/deploy-pages@v4
