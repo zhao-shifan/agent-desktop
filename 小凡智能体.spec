@@ -1,11 +1,11 @@
-﻿# -*- mode: python ; coding: utf-8 -*-
+# -*- mode: python ; coding: utf-8 -*-
 
 
 a = Analysis(
     ['server.py'],
     pathex=[],
     binaries=[],
-    datas=[('index.html', '.'), ('qrcode.js', '.'), ('official_skills.js', '.'), ('manifest.json', '.'), ('sw.js', '.'), ('icons', 'icons'), ('wallpapers', 'wallpapers')],
+    datas=[('index.html', '.'), ('qrcode.js', '.'), ('official_skills.js', '.'), ('marked.min.js', '.'), ('purify.min.js', '.'), ('html-docx.js', '.'), ('manifest.json', '.'), ('sw.js', '.'), ('icons', 'icons'), ('wallpapers', 'wallpapers')],
     hiddenimports=['trafilatura'],
     hookspath=[],
     hooksconfig={},
