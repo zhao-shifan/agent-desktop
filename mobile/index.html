@@ -390,6 +390,8 @@ body::before{
 .mcp-box .field{margin-bottom:12px}
 .mcp-box .field input{font-size:12.5px}
 .mono{font-family:Consolas,'Courier New',monospace;font-size:12px}
+.mcp-in{width:100%;padding:9px 13px;border-radius:11px;border:1px solid var(--line2);background:var(--bg2);color:var(--txt);font-size:12.5px;outline:none;transition:border-color .15s}
+.mcp-in:focus{border-color:var(--accent)}
 .mcp-card{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--panel);transition:border-color .15s}
 .mcp-card:hover{border-color:var(--accent)}
 .mcp-card-name{font-size:13px;color:var(--txt)}
@@ -1056,7 +1058,7 @@ body:has(.sidebar.open) #sbScrim{display:block}
     </details>
     </div>
     <div id="mcpTabMarket" style="display:none">
-      <input id="mcpMarketSearch" placeholder="🔍 搜索市场（如：excel、浏览器、github）" style="width:100%;margin-bottom:4px" oninput="renderMcpMarket()">
+      <input id="mcpMarketSearch" class="mcp-in" placeholder="🔍 搜索市场（如：excel、浏览器、github）" style="width:100%;margin-bottom:4px" oninput="renderMcpMarket()">
       <div id="mcpMarketCats" style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 12px"></div>
       <div id="mcpMarketList" style="display:flex;flex-direction:column;gap:10px;max-height:340px;overflow:auto;padding-right:4px"></div>
       <p style="font-size:11px;color:var(--faint);margin-top:10px;line-height:1.7">

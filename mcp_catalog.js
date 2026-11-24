@@ -12,9 +12,13 @@ window.MCP_CATALOG = [
   {name:"memory", label:"长期记忆", cat:"智能", desc:"跨对话知识图谱记忆", command:"npx", args:["-y","@modelcontextprotocol/server-memory"]},
   {name:"think", label:"深度思考", cat:"智能", desc:"复杂问题分步推理框架", command:"npx", args:["-y","@modelcontextprotocol/server-sequential-thinking"]},
   // 💼 办公效率
+  {name:"word", label:"Word 文档", cat:"办公", desc:"创建/编辑/解析 .docx（第三方 office-word-mcp-server，需装 uv）", command:"uvx", args:["office-word-mcp-server"]},
+  {name:"excel", label:"Excel 表格", cat:"办公", desc:"读写 .xlsx 数据、公式、多工作表", command:"npx", args:["-y","@negokaz/excel-mcp-server"]},
   {name:"gdrive", label:"Google 云盘", cat:"办公", desc:"搜索读取 Google Drive 文件（需 Google 凭据）", command:"npx", args:["-y","@modelcontextprotocol/server-gdrive"], note:"需要配置 Google OAuth 凭据"},
   {name:"slack", label:"Slack", cat:"办公", desc:"读写 Slack 消息频道（需 Slack Token）", command:"npx", args:["-y","@modelcontextprotocol/server-slack"], note:"需在 env 里填 SLACK_BOT_TOKEN"},
   {name:"puppeteer", label:"浏览器自动化", cat:"办公", desc:"控制无头浏览器：截图/点击/填表", command:"npx", args:["-y","@modelcontextprotocol/server-puppeteer"]},
+  // 🎨 设计
+  {name:"figma", label:"Figma 设计稿", cat:"设计", desc:"读取 Figma 设计稿数据转代码（Framelink，需 Figma API Key）", command:"npx", args:["-y","figma-developer-mcp","--stdio","--figma-api-key=你的KEY"], note:"把最后的「你的KEY」换成 Figma 个人访问令牌"},
   // 🛠 开发工具
   {name:"github-official", label:"GitHub", cat:"开发", desc:"仓库/Issue/PR 读写（需 GitHub Token）", command:"npx", args:["-y","@modelcontextprotocol/server-github"], note:"需在 env 里填 GITHUB_PERSONAL_ACCESS_TOKEN"},
   {name:"git", label:"Git 本地", cat:"开发", desc:"本地仓库 diff/commit/log 等操作（需装 uv）", command:"uvx", args:["mcp-server-git","--repository","D:/桌面版agent"]},
