@@ -212,6 +212,8 @@ class Handler(BaseHTTPRequestHandler):
             "/qrcode.js": "qrcode.js",
             "/config.local.js": "config.local.js",
             "/official_skills.js": "official_skills.js",
+            "/marked.min.js": "marked.min.js",
+            "/purify.min.js": "purify.min.js",
             "/manifest.json": "manifest.json",
             "/sw.js": "sw.js",
         }
@@ -612,6 +614,26 @@ class Handler(BaseHTTPRequestHandler):
         model = payload.get("model") or ""
         temperature = payload.get("temperature")
         messages = payload.get("messages") or []
+
+        # ---------- 内容降级：纯文本模型不接受 image_url 等多模态块（智谱 1210） ----------
+        _VISION_HINTS = ("glm-4v", "glm-4.5v", "glm-4.6v", "4o", "vision", "vl-",
+                         "claude", "gemini", "gpt-4-turbo", "qwen-vl", "doubao-vision")
+        _model_low = (model or "").lower()
+        _model_vision = any(h in _model_low for h in _VISION_HINTS)
+
+        def _flatten_content(c):
+            if not isinstance(c, list):
+                return c
+            texts = [p.get("text", "") for p in c if isinstance(p, dict) and p.get("type") == "text"]
+            has_img = any(isinstance(p, dict) and p.get("type") in ("image_url", "image") for p in c)
+            if has_img and not _model_vision:
+                txt = "\n".join(t for t in texts if t)
+                note = "（[用户发过图片，当前模型不支持看图，已省略]）"
+                return (txt + "\n" + note).strip() if txt else note
+            return c
+
+        messages = [{**m, "content": _flatten_content(m.get("content"))} for m in messages]
+
         # 人设+工具规则注入：前端 system（能力提示）会挡住判空逻辑，
         # 所以用内容标记判断，保证每次对话都带上小凡人设
         if not any(m.get("role") == "system" and "【你是谁】" in (m.get("content") or "")
