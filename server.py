@@ -210,6 +210,7 @@ class Handler(BaseHTTPRequestHandler):
             "/": "index.html",
             "/index.html": "index.html",
             "/qrcode.js": "qrcode.js",
+            "/mcp_catalog.js": "mcp_catalog.js",
             "/config.local.js": "config.local.js",
             "/official_skills.js": "official_skills.js",
             "/marked.min.js": "marked.min.js",

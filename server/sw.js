@@ -13,6 +13,7 @@ const SHELL = [
   "./index.html",
   "./manifest.json",
   "./qrcode.js",
+  "./mcp_catalog.js",
   "./official_skills.js",
   "./marked.min.js",
   "./purify.min.js",
