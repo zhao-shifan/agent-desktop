@@ -8,7 +8,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 const out = path.join(here, "www");
 
-const FILES = ["index.html", "qrcode.js", "official_skills.js", "manifest.json", "sw.js"];
+const FILES = ["index.html", "qrcode.js", "official_skills.js", "manifest.json", "sw.js",
+               "mcp_catalog.js", "marked.min.js", "purify.min.js", "html-docx.js"];
 const DIRS = ["icons", "wallpapers"];
 
 fs.rmSync(out, { recursive: true, force: true });

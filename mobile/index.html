@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no, interactive-widget=resizes-content">
 <meta name="theme-color" content="#0c0c0e">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -4629,21 +4629,34 @@ $("qrOverlay").addEventListener("click", e=>{ /* 只通过 ✕ 关闭 */ });
 </script>
 <script>
 /* ===== 手机键盘自适应：visualViewport 计算键盘高度，输入框始终可见 ===== */
+function updKB(){
+  if(!window.visualViewport) return;
+  const vv = window.visualViewport;
+  const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+  document.documentElement.style.setProperty("--kb", kb + "px");
+  /* 兜底：不支持 dvh、或键盘弹起但不缩小布局视口的内核（部分安卓 WebView/内置浏览器），
+     直接把 body 高度钉成可视视口高度，保证输入区一定在键盘上方 */
+  if(kb > 0){ document.body.style.height = vv.height + "px"; }
+  else if(document.body.style.height){ document.body.style.height = ""; }
+  if(kb > 80){ scrollBottom(); }
+}
+updKB();
 if(window.visualViewport){
   const vv = window.visualViewport;
-  function updKB(){
-    const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-    document.documentElement.style.setProperty("--kb", kb + "px");
-    if(kb > 80){ scrollBottom(); }
-  }
   vv.addEventListener("resize", updKB);
   vv.addEventListener("scroll", updKB);
-  updKB();
 }
+window.addEventListener("resize", updKB);   // 部分 WebView 只派发 window.resize
 /* 输入框聚焦时确保自己滚进可视区（部分安卓 WebView 不自动滚） */
 $("input").addEventListener("focus", ()=>{
-  setTimeout(()=>{ $("input").scrollIntoView({block:"nearest"}); scrollBottom(); }, 300);
+  /* 键盘弹起在不少内核上是异步的：分几帧复查键盘高度，避免只算一次算早了 */
+  [60,300,600,1000].forEach(t=>setTimeout(()=>{
+    updKB();
+    $("input").scrollIntoView({block:"nearest"});
+    scrollBottom();
+  }, t));
 });
+$("input").addEventListener("blur", ()=>{ setTimeout(updKB, 120); });
 /* ===== 手机端侧边栏手势（参考 DeepSeek）：左缘右滑展开 / 往左滑或点空白折叠 ===== */
 $("sbScrim").addEventListener("click", ()=>{ document.querySelector(".sidebar").classList.remove("open"); });
 (function(){
