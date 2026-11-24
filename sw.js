@@ -5,7 +5,7 @@
    - /api/* 一律走网络，不缓存（对话、文件解析不能拿旧结果）
    - 壁纸大图 cache-first + 后台更新
 */
-const VERSION = "xfan-v3";   // v3: 壁纸上传改「先裁剪、只存本机可管理」；思考心跳；手机解析 Office/PDF
+const VERSION = "xfan-v5";   // v5: 图片压缩/配额摘图不删话/run_command 黑名单+确认门/docx 本地化/防注入
 const SHELL_CACHE = VERSION + "-shell";
 const IMG_CACHE = VERSION + "-img";
 const SHELL = [
@@ -14,6 +14,9 @@ const SHELL = [
   "./manifest.json",
   "./qrcode.js",
   "./official_skills.js",
+  "./marked.min.js",
+  "./purify.min.js",
+  "./html-docx.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/icon-maskable-512.png",

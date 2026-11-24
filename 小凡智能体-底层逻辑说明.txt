@@ -1,0 +1,283 @@
+================================================================
+        小凡智能体 · 底层逻辑说明（2026-11-24 修复后版本）
+        对应文件：server.py / tools_layer.py / index.html / sw.js
+        用途：自己回顾架构 / 以后照着写 skill / 继续改造
+================================================================
+
+【一句话总结】
+智能体 = 模型（大脑，只负责想） + Python 服务（调度器，负责循环）
+        + 工具层（手脚，负责拿真实数据）
+前端只是脸，真正让它"聪明"的是：循环 + 工具 + 真实数据回灌。
+
+================================================================
+一、整体架构（请求怎么流转）
+================================================================
+
+  浏览器/PWA/APK (index.html)
+        │  POST /api/chat  {baseUrl, apiKey, model, messages, tools, perm}
+        ▼
+  Python 服务 (server.py, 标准库 http.server, 零框架)
+        │  1. 注入人设 system 消息
+        │  2. tools_on → 进入 _chat_with_tools 工具循环
+        ▼
+  上游大模型 API（OpenAI 兼容 /chat/completions，如智谱 glm-4-flash）
+        │  返回两种东西之一：
+        │  a) 纯文本 content → 对话结束
+        │  b) tool_calls → 服务端去执行工具
+        ▼
+  工具层 (tools_layer.py, 18 个工具)
+        │  联网搜索 / 抓网页 / 读写文件 / 算数 / 跑代码 / 天气 / 笔记…
+        ▼
+  工具结果回灌给模型 → 模型再想 → 循环，直到模型给出最终答案
+        ▼
+  SSE 流式推回前端 → index.html 用 marked+DOMPurify 渲染成富文本
+
+================================================================
+二、核心循环（server.py 的 _chat_with_tools，所有 Agent 的心脏）
+================================================================
+
+  msgs = [人设system, 历史对话, 用户问题]
+  for round in range(MAX_ROUNDS=4):            ← 步数预算，防死循环烧token
+      data = call_upstream(_trim_history(msgs)) ← 带指数退避重试(429/5xx)
+      msg = data.choices[0].message
+      if 没有 tool_calls: final_text = msg.content; 跳出   ← 终止判断
+      msgs.append(assistant消息含tool_calls)     ← 意图必须原样回传
+      多个 tool_calls → ThreadPoolExecutor 并发执行（最多4线程）
+      每个结果:
+          content = str(result)[:12000]          ← 统一截断，防上下文爆炸
+          msgs.append({role:"tool", tool_call_id, content})
+  如果 4 轮用完还没答案:
+      追加一条 user 消息"不能再调工具，基于已有信息立即总结"
+      再调一次模型收尾（Qwen-Agent/smolaagents 同款做法）
+  最后把 final_text 按 SSE 分片吐给前端
+
+  ★ 关键设计：
+  - 错误回填：工具失败不中断循环，把"工具执行失败：xxx"当结果
+    告诉模型，让它自己纠正（Qwen-Agent 同款）
+  - 超轮收尾：不是硬编码"失败了"，而是让模型基于已有信息总结
+  - trim_history：消息总字符超 12 万时，保留 system + 最近 8 条逐字，
+    更早的 tool 结果替换成"（历史工具结果已省略）"、老消息截到 600 字
+    （搬的 Qwen-Agent trim_history，防长对话爆上下文）
+
+================================================================
+三、工具层（tools_layer.py，18 个工具 = 智能体的手和脚）
+================================================================
+
+  T0 必备：web_search / fetch_url / read_file / write_file /
+          edit_file / list_dir / grep / glob_files /
+          run_command / run_python
+  T0.5：  get_time / calculator / wikipedia_search /
+          save_note / search_notes / get_location / get_weather
+  MCP：   mcp_<服务器名>_<工具名> —— 外部工具服务器自动挂载
+          （配置 agent_data/mcp_servers.json，重启生效）
+
+  ★ MCP 客户端（v1.8 新增，tools_layer.py 底部，零依赖实现）：
+  - 协议：Anthropic 开源的 Model Context Protocol（MIT，免费）
+    stdio 传输 = 行分隔 JSON-RPC 2.0，标准库 subprocess 就能实现
+  - 启动流程：读配置 → Popen 拉起每个 MCP 服务器 →
+    initialize 握手 → notifications/initialized → tools/list 拉工具清单
+  - 工具挂载：转成 OpenAI function calling 格式追加进 TOOL_DEFS，
+    模型看到的就是普通工具，无感知
+  - 调用：run_tool 里 mcp_ 前缀路由到 mcp_call_tool →
+    tools/call 发给服务器 → 结果文本截断后回灌模型
+  - 容错：某个服务器启动失败只跳过该服务器，不影响主程序；
+    每个 MCP 服务器一把锁，多服务器可并发调用
+  - 用途：即插即用整个 MCP 生态（文件系统/数据库/浏览器/GitHub
+    等几百个现成服务器），不用逐个手写工具函数
+  - 测试：tests\_test_mcp.py（内置假 MCP 服务器做端到端验证）
+
+  ★ 每个工具的底层实现：
+  1) web_search   有 Tavily Key 走 API；没有就并发抓 Bing/360/DDG/百度
+                 四个引擎的 HTML 用正则解析，URL 去重合并。
+                 并发用 futures.wait(timeout=20)：超时只放弃没完成的，
+                 已完成引擎的结果照常收集（修复点）
+  2) fetch_url    先 SSRF 检查（解析 hostname → getaddrinfo →
+                 私网/环回/链路本地地址一律拒绝）→ 抓页面 →
+                 trafilatura 抽正文 → 不够 200 字退回正则清洗 → 截断
+  3) run_python   模型生成的代码写临时文件 → subprocess 60s 超时执行
+                 → stdout+stderr 回灌（需用户开"允许执行命令"开关）
+  4) run_command  powershell -Command，60s 超时（同样要开关）
+  5) calculator   AST 白名单解析（只允许数字和 + - * / % **），
+                 自定义递归求值器拦截巨型幂：结果超 10 万位数字拒绝
+                 （不用 eval，9**9**9 会卡死 CPU）
+  6) save_note    JSON 文件存储（RAG-lite），threading.Lock 防并发丢数据；
+                 路径延迟求值：打包成 exe 后笔记不会写进临时目录丢失
+  7) search_notes 关键词重叠打分检索，不需要向量库和 embedding
+  8) 文件工具     _check_path 用 os.path.commonpath 校验路径必须在
+                 APP_ROOT/工作目录/用户主目录白名单内，防目录穿越
+
+  ★ 权限分级：路径白名单 > run_command/run_python 需 allowCommand 开关
+
+================================================================
+四、搜索的"强制预搜索"机制（server.py）
+================================================================
+
+  用户消息命中时效正则（最新|热点|新闻|多少钱|哪一年|是谁|搜一下…）
+  → 服务端先自己 web_search 一次
+  → 结果以 system 消息注入（截 4000 字）
+  → 要求模型必须基于搜索结果回答、标注引用编号 [1][2]
+
+  这是 DeepSeek 官方同款思路：事实/时效类问题不依赖模型自觉，
+  先拿到真实数据再回答，防编造。（修复点：正则已收紧，
+  "写一首关于今天的诗"这类不会再误触发）
+
+================================================================
+五、前端（index.html，单文件 25 万字符全平台）
+================================================================
+
+  双模式：
+  - 服务模式：连 http://127.0.0.1:8765，工具循环在 Python 端跑
+  - 独立模式：浏览器直连模型 API，工具循环前端自己跑（最多 4 轮）
+
+  流式渲染链路：
+  fetch POST → r.body.getReader() 手工解析 SSE
+  → 每个 delta 累加进 full 字符串
+  → requestAnimationFrame 节流（每帧最多渲染一次，修复点：
+    原来 O(n²) 全量重渲染，长回复掉帧）
+  → mdRender(full) 渲染
+  → scrollBottom() 智能滚底（修复点：用户上滑回看超过 120px
+    不再强行拽回底部）
+
+  Markdown 渲染（修复点，本次最大升级）：
+  - 主路径：本地 marked.min.js（MIT）+ purify.min.js（Apache 2.0）
+    DOMPurify.sanitize(marked.parse(src, {breaks:true, gfm:true}))
+    → 完整支持表格/链接/引用块/删除线/嵌套列表（对标豆包排版）
+    → 同时解决 XSS：模型/恶意网页返回的 HTML 全部消毒
+  - 兜底路径：加载失败时退回内置轻量正则渲染器
+  - 文件本地引入（不用 CDN），已加入 sw.js 预缓存，离线可用
+
+================================================================
+六、安全防护清单（本次修复）
+================================================================
+
+  1. 默认只监听 127.0.0.1（原来 0.0.0.0 裸奔，同 WiFi 任何人
+     可白嫖 API 额度/骗走 Key）；要手机访问用 --lan 参数启动
+  2. fetch_url 内网黑名单（防 SSRF：恶意网页诱导模型打你的路由器）
+  3. 删除 SSL 证书校验静默降级（防中间人注入搜索结果）
+  4. DOMPurify 消毒 + esc() 转义引号（防 XSS 偷 localStorage 里的 Key）
+  5. 请求体 50MB 上限（防内存放大攻击）
+  6. SSE 心跳线程加锁（防两线程并发写流导致帧错位前端崩）
+  7. 搜索结果/网页正文只当"数据"不当"指令"（提示注入的基础防线，
+     更完整的 <untrusted_data> 标记可后续加）
+
+================================================================
+七、零成本方案（全免费，无一分钱付费项）
+================================================================
+
+  模型：智谱 GLM-4-Flash / GLM-5.3-Flash API 免费不限量（主力）
+        OpenRouter :free 池每天 50 次兜底 / Ollama 本地备选
+  搜索：Bing/360/DuckDuckGo/百度 四源并发（免 Key）
+        Tavily 有免费额度，可选
+  网页正文：trafilatura（本地库）+ 免 Key
+  天气/定位：Open-Meteo / ip-api（全免 Key）
+  前端库：marked (MIT) / DOMPurify (Apache 2.0) / qrcode.js，全本地
+  参考/可搬的框架：QwenLM/Qwen-Agent (Apache 2.0)
+                  anthropics/skills (Apache 2.0，已接 5 个官方技能)
+  后端：Python 标准库，零第三方框架依赖
+
+================================================================
+八、anthropics/skills 接入方式（你问过的 SKILL.md）
+================================================================
+
+  fetch_official_skills.py 用 gh api 拉取官方 SKILL.md
+  → 生成 official_skills.js（window.OFFICIAL_SKILLS 数组：
+    {id, name, desc, prompt, official, source}）
+  → 目前有 docx/pptx/xlsx/pdf/frontend-design 5 个官方技能，
+    全部 Apache 2.0 免费商用
+
+  SKILL.md 标准格式（agentskills.io 规范）就两行头：
+    ---
+    name: my-skill
+    description: 干什么 + 什么时候用（模型靠这句决定要不要用）
+    ---
+    # 正文：具体操作步骤/示例/注意事项
+
+  ★ 渐进式披露（已实现，无需再改）：
+    实测确认小凡的技能路由已经是官方标准模式：
+    - 本地关键词匹配 pickSkillLocal() 只用 name/desc/keywords 打分（毫秒级）
+    - LLM 兜底分类也只发 name+desc（几十字/技能）
+    - 只有命中的那一个技能，其全文 prompt 才注入本轮 system
+    - 其他技能零 token 消耗
+    （official_skills.js 的 65KB 只存在浏览器内存，不发给模型）
+
+================================================================
+九、模型理解对不对？—— 你说的完全正确
+================================================================
+
+  "现在就是一个前端展示的界面 + 脚手架，真正运行的是模型和工具调用
+   RAG 联网搜索" ✅
+
+  精确地说：
+  - index.html        = 前端展示（脸）
+  - server.py         = 脚手架/调度器（循环、重试、截断、裁剪、SSE）
+  - 模型 API          = 大脑（决定调什么工具、怎么总结）
+  - tools_layer.py    = 手脚（搜索=RAG-lite 联网检索、笔记=本地记忆、
+                        文件/命令=操作电脑、天气/时间=实时数据）
+  模型训练数据会过期，靠工具拿真实数据再回答，这就是智能体比
+  纯聊天机器人强的根本原因。
+
+================================================================
+十、以后自己写 skill 的模板（照抄就能用）
+================================================================
+
+  写一个新技能只需三步：
+  1. 按 SKILL.md 格式写一个 md（name/description/操作步骤）
+  2. 放进你的技能列表（前端 aria.skills 或 official_skills.js）
+  3. 命中关键词时把 prompt 内容注入 system 消息
+
+  如果是新"工具"（模型能调用的函数），在 tools_layer.py：
+  1. 写函数（返回字符串，异常自行捕获返回错误文本）
+  2. TOOL_DEFS 加 JSON Schema（description 写"什么时候用"比
+     "怎么用"更重要——模型靠它选工具）
+  3. run_tool 里加一个 if 分支
+  （待优化：TOOL_DEFS 和 run_tool 两处维护，可改成
+   {名字: 函数+schema} 一体注册表，加工具只改一处）
+
+================================================================
+版本记录
+  v1.5  2026-11-23  写改搜工具/并发/退避/思考心跳/手机解析 Office
+  v1.6  2026-11-24  marked+DOMPurify 完整渲染/统一截断/trim_history/
+                    SSRF+XSS+局域网防护/搜索超时不丢结果/笔记防丢/
+                    rAF 节流/智能滚底/预搜索收紧/calculator 防卡死
+  v1.7  2026-11-24  图片上传压缩(1280px/JPEG)/配额爆掉先摘图片不删对话/
+                    run_command+run_python 高危黑名单/独立模式执行前
+                    confirm 确认门/html-docx 本地化(离线导出 Word)/
+                    人设加防提示注入条款/打包 spec 补 3 个 js/
+                    目录归类(scripts dev tests)
+  v1.8  2026-11-24  MCP 客户端接入（零依赖 stdio JSON-RPC）：
+                    配置 agent_data/mcp_servers.json 即可挂载
+                    MCP 生态的现成外部工具
+  v1.9  2026-11-24  lark_cli 工具（飞书全量 OpenAPI：读操作直接放行，
+                    写操作需开命令权限；凭据类命令永禁）/
+                    MCP 设置面板（设置 → 🔌 MCP 外部工具：
+                    编辑 JSON → 保存即热重载挂载，显示已挂载工具）
+                    ★ MCP 只在电脑服务模式生效（MCP 是本机进程）
+
+================================================================
+目录结构（v1.7 归类后）
+================================================================
+
+  D:\桌面版agent\            ← 项目根（生产文件全在这）
+  ├─ server.py               后端：HTTP 服务 + 工具调用循环
+  ├─ tools_layer.py          工具层：18 个工具实现 + 权限/黑名单
+  ├─ index.html              前端：单文件全平台（桌面 PWA + 手机）
+  ├─ sw.js                   Service Worker（改版必升 VERSION）
+  ├─ manifest.json / config.local.js
+  ├─ qrcode.js / marked.min.js / purify.min.js / html-docx.js
+  ├─ official_skills.js      anthropics/skills 官方技能（Apache 2.0）
+  ├─ 小凡智能体.spec         PyInstaller 打包配置（exe）
+  ├─ 启动智能体.bat          双击启动
+  ├─ icons/ wallpapers/      图标与壁纸
+  ├─ agent_data/             运行数据（notes.json 等）
+  ├─ mobile/                 Capacitor APK 工程（index.html 副本+libs）
+  ├─ server/                 服务器部署版（后端+libs）
+  ├─ build/ dist/            打包输出
+  ├─ scripts/                工具脚本：同步手机版/拉官方技能/打包发布
+  ├─ tests/                  测试：tests\_test_tool_loop.py 端到端循环
+  ├─ dev/                    历史调试残留（探针/截图/DOM dump，可全删）
+  ├─ 分支规则.txt / 智能体底层开发清单.txt / 小凡智能体-底层逻辑说明.txt
+  └─ README.md / LICENSE
+
+  防副本漂移规则：index.html 只改根目录这份，
+  然后跑  python scripts\_sync_mobile.py  同步手机独立版，
+  再手动 Copy-Item index.html mobile\index.html
