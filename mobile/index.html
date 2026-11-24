@@ -1527,6 +1527,8 @@ async function openMcpManager(){
     mcpServers = (d.config?.servers || []).filter(s => s && s.name);
     $("mcpJsonAdv").value = JSON.stringify({servers: mcpServers}, null, 2);
     renderMcpMounted(d.mounted || {});
+    $("mcpMountedLine").textContent = renderMcpLifecycle(d.lifecycle) + "　— 共 " +
+      Object.values(d.mounted || {}).reduce((a, b) => a + b.length, 0) + " 个工具";
   }catch(e){ $("mcpMountedLine").textContent = "加载失败：" + e.message; }
   renderMcpCards();
 }
@@ -1618,6 +1620,14 @@ function renderMcpMarket(){
     </div>`;
   }).join("") : `<div class="mcp-empty">没找到匹配的服务器。<br>可去 awesome-mcp-servers 目录找，再用「我的服务器 → 手动添加」加入。</div>`;
 }
+function renderMcpLifecycle(lc){
+  const parts = Object.entries(lc || {}).map(([s, st]) => {
+    if(st === "starting") return `⏳ ${s}（首次下载/启动中，可能要等 10~60 秒）`;
+    if(String(st).startsWith("failed")) return `❌ ${s}：${esc(String(st).slice(7))}`;
+    return `✅ ${s}`;
+  });
+  return parts.join("　") || "暂无";
+}
 async function saveMcpServers(){
   const tip = $("mcpFormTip");
   const setTip = (msg, ok) => { tip.textContent = msg; tip.className = ok ? "mcp-tip-ok" : "mcp-tip-err"; };
@@ -1626,13 +1636,23 @@ async function saveMcpServers(){
     const adv = JSON.parse($("mcpJsonAdv").value);
     if(Array.isArray(adv.servers) && JSON.stringify(adv.servers) !== JSON.stringify(mcpServers)) mcpServers = adv.servers;
   }catch(e){ setTip("高级 JSON 格式有误，已按列表保存"); }
+  setTip("⏳ 正在启动 MCP 服务器…第一次运行需要下载程序包，可能要等 10~60 秒，别关窗口");
   try{
     const r = await fetch("/api/mcp",{method:"POST",headers:{"Content-Type":"application/json"},
       body: JSON.stringify({servers: mcpServers})});
     const d = await r.json();
     if(d.error){ setTip("❌ " + d.error); return; }
     renderMcpMounted(d.mounted || {});
-    setTip(`✅ 已挂载 ${d.total} 个工具`, true);
+    const lc = d.lifecycle || {};
+    const failed = Object.entries(lc).filter(([, st]) => String(st).startsWith("failed"));
+    const starting = Object.entries(lc).filter(([, st]) => st === "starting");
+    if(failed.length){
+      setTip("⚠ 已启动 " + (d.total || 0) + " 个工具；失败：" + failed.map(([s, st]) => s + "（" + esc(String(st).slice(7, 60)) + "）").join("、"));
+    } else if(starting.length){
+      setTip("✅ 已挂载 " + (d.total || 0) + " 个工具，" + starting.map(([s]) => s).join("、") + " 仍在首次下载中，稍后重新打开面板查看", true);
+    } else {
+      setTip(`✅ 已挂载 ${d.total} 个工具`, true);
+    }
     setStatus(`✅ MCP 已挂载 ${d.total} 个外部工具`);
   }catch(e){ setTip("❌ 保存失败：" + e.message); }
 }

@@ -285,7 +285,8 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 pass
             self._send_json({"ok": True, "config": cfg,
-                             "mounted": tools_layer.mcp_status()})
+                             "mounted": tools_layer.mcp_status(),
+                             "lifecycle": tools_layer.mcp_lifecycle()})
         elif self.path == "/api/wallpapers":
             ids = wallpaper_ids()
             self._send_json({"ok": True, "count": len(ids), "ids": ids,
@@ -349,6 +350,7 @@ class Handler(BaseHTTPRequestHandler):
         tools_layer.TOOL_DEFS[:] = base + tools_layer.mcp_tool_defs()
         self._send_json({"ok": True,
                          "mounted": mounted,
+                         "lifecycle": tools_layer.mcp_lifecycle(),
                          "total": sum(len(v) for v in mounted.values())})
 
     def handle_docx(self):
