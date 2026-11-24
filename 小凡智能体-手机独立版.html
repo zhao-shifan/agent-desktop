@@ -382,6 +382,22 @@ body::before{
 .content{font-size:15px;line-height:1.72;color:var(--txt);word-break:break-word}
 .msg.user .content{color:#cfccc4}
 .content p{margin:0 0 .45em}
+/* ===== MCP 面板 ===== */
+.mcp-box{border:1px solid var(--line);border-radius:16px;padding:16px;background:var(--panel)}
+.mcp-box-head{font-size:12.5px;font-weight:600;color:var(--txt);margin-bottom:14px;letter-spacing:.02em}
+.mcp-grid{display:grid;grid-template-columns:1fr 1.6fr;gap:12px}
+.mcp-grid .field{margin-bottom:12px}
+.mcp-box .field{margin-bottom:12px}
+.mcp-box .field input{font-size:12.5px}
+.mono{font-family:Consolas,'Courier New',monospace;font-size:12px}
+.mcp-card{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--panel);transition:border-color .15s}
+.mcp-card:hover{border-color:var(--accent)}
+.mcp-card-name{font-size:13px;color:var(--txt)}
+.mcp-card-tag{color:var(--faint);font-size:11px;margin-left:6px}
+.mcp-card-cmd{font-family:Consolas,monospace;font-size:11px;color:var(--faint);word-break:break-all;margin-top:3px}
+.mcp-card-desc{font-size:12px;color:var(--dim);margin-top:2px;line-height:1.55}
+.mcp-card-warn{color:#e0a060}
+.mcp-empty{font-size:12px;color:var(--faint);text-align:center;padding:22px 16px;border:1px dashed var(--line);border-radius:14px;line-height:1.8}
 .content p:last-child{margin-bottom:0}
 .content code{
   font-family:var(--mono);font-size:.88em;background:var(--chip);
@@ -1021,16 +1037,18 @@ body:has(.sidebar.open) #sbScrim{display:block}
     <div id="mcpTabMine">
     <div id="mcpMountedLine" style="font-size:12px;color:var(--accent2);margin:-6px 0 10px">加载中…</div>
     <div id="mcpServerList" style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px"></div>
-    <div style="border:1px dashed var(--line2);border-radius:14px;padding:12px 14px">
-      <div style="font-size:12.5px;font-weight:600;color:var(--txt);margin-bottom:8px">➕ 手动添加 MCP 服务器</div>
-      <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-bottom:8px">
-        <input id="mcpName" placeholder="名称，如 filesystem">
-        <input id="mcpCommand" placeholder="启动命令，如 npx" style="font-family:Consolas,monospace">
+    <div class="mcp-box">
+      <div class="mcp-box-head">➕ 手动添加服务器</div>
+      <div class="mcp-grid">
+        <div class="field" style="margin-bottom:0"><label>名称</label><input id="mcpName" placeholder="filesystem"></div>
+        <div class="field" style="margin-bottom:0"><label>启动命令</label><input id="mcpCommand" class="mono" placeholder="npx"></div>
       </div>
-      <input id="mcpArgs" placeholder="参数（空格分隔），如：-y @modelcontextprotocol/server-filesystem D:/" style="font-family:Consolas,monospace;margin-bottom:8px">
-      <input id="mcpEnv" placeholder="环境变量（可选，格式：KEY=值 KEY2=值2）" style="margin-bottom:10px">
-      <button class="btn-primary" onclick="addMcpServer()">添加到列表</button>
-      <span id="mcpFormTip" style="font-size:12px;color:#e5735f;margin-left:10px"></span>
+      <div class="field"><label>启动参数（空格分隔）</label><input id="mcpArgs" class="mono" placeholder="-y @modelcontextprotocol/server-filesystem D:/"></div>
+      <div class="field" style="margin-bottom:14px"><label>环境变量（可选）</label><input id="mcpEnv" class="mono" placeholder="KEY=值 KEY2=值2"></div>
+      <div style="display:flex;justify-content:flex-end;align-items:center;gap:14px">
+        <span id="mcpFormTip" style="font-size:12px;min-height:16px"></span>
+        <button class="btn-primary" onclick="addMcpServer()">添加到列表</button>
+      </div>
     </div>
     <details style="margin-top:12px">
       <summary style="cursor:pointer;font-size:12px;color:var(--faint)">高级：直接编辑 JSON 配置</summary>
@@ -1520,23 +1538,24 @@ function renderMcpMounted(mounted){
 function renderMcpCards(){
   const box = $("mcpServerList");
   if(!mcpServers.length){
-    box.innerHTML = `<div style="font-size:12px;color:var(--faint);text-align:center;padding:14px;border:1px solid var(--line);border-radius:14px">还没有配置服务器。下面加一个试试，推荐官方文件系统：<br><code style="font-family:Consolas,monospace;color:var(--dim)">npx -y @modelcontextprotocol/server-filesystem D:/</code></div>`;
+    box.innerHTML = `<div class="mcp-empty">还没有配置服务器。去「🛒 MCP 市场」点一个安装，<br>或用下面表单手动添加，推荐官方文件系统：<br><code style="font-family:Consolas,monospace;color:var(--dim)">npx -y @modelcontextprotocol/server-filesystem D:/</code></div>`;
     return;
   }
   box.innerHTML = mcpServers.map((s, i) =>
-    `<div style="display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:14px;padding:10px 14px;background:var(--panel)">
+    `<div class="mcp-card">
        <div style="flex:1;min-width:0;text-align:left">
-         <div style="font-size:13px;color:var(--txt)"><b>${esc(s.name)}</b> <span style="color:var(--faint);font-size:11px">stdio</span></div>
-         <div style="font-size:11px;color:var(--dim);font-family:Consolas,monospace;word-break:break-all">${esc(s.command + " " + (s.args||[]).join(" "))}</div>
+         <div class="mcp-card-name"><b>${esc(s.name)}</b><span class="mcp-card-tag">stdio</span></div>
+         <div class="mcp-card-cmd">${esc(s.command + " " + (s.args||[]).join(" "))}</div>
        </div>
        <button class="btn-ghost" style="color:#e5735f;padding:4px 10px" title="删除" onclick="delMcpServer(${i})">✕</button>
      </div>`).join("");
 }
 function addMcpServer(){
   const tip = $("mcpFormTip");
+  const setTip = (msg, ok) => { tip.textContent = msg; tip.className = ok ? "mcp-tip-ok" : "mcp-tip-err"; };
   const name = $("mcpName").value.trim(), command = $("mcpCommand").value.trim();
-  if(!name || !command){ tip.textContent = "名称和启动命令必填"; return; }
-  if(mcpServers.some(s => s.name === name)){ tip.textContent = "已有同名服务器"; return; }
+  if(!name || !command){ setTip("名称和启动命令必填"); return; }
+  if(mcpServers.some(s => s.name === name)){ setTip("已有同名服务器"); return; }
   const args = $("mcpArgs").value.trim().split(/\s+/).filter(Boolean);
   const env = {};
   $("mcpEnv").value.trim().split(/\s+/).filter(Boolean).forEach(kv => {
@@ -1586,32 +1605,34 @@ function renderMcpMarket(){
   $("mcpMarketList").innerHTML = items.length ? items.map((p) => {
     const idx = cat.indexOf(p);
     const added = mcpServers.some(s => s.name === p.name);
-    return `<div style="display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--panel)">
+    return `<div class="mcp-card">
       <div style="flex:1;min-width:0;text-align:left">
-        <div style="font-size:13px;color:var(--txt)"><b>${esc(p.label)}</b> <span style="color:var(--faint);font-size:11px">${esc(p.cat)} · ${esc(p.name)}</span></div>
-        <div style="font-size:12px;color:var(--dim);margin-top:2px">${esc(p.desc)}${p.note ? `<span style="color:#e0a060">（⚠ ${esc(p.note)}）</span>` : ""}</div>
-        <div style="font-size:10.5px;color:var(--faint);font-family:Consolas,monospace;word-break:break-all;margin-top:2px">${esc(p.command + " " + p.args.join(" "))}</div>
+        <div class="mcp-card-name"><b>${esc(p.label)}</b><span class="mcp-card-tag">${esc(p.cat)} · ${esc(p.name)}</span></div>
+        <div class="mcp-card-desc">${esc(p.desc)}${p.note ? `<span class="mcp-card-warn">（⚠ ${esc(p.note)}）</span>` : ""}</div>
+        <div class="mcp-card-cmd">${esc(p.command + " " + p.args.join(" "))}</div>
       </div>
       <button class="btn-primary" style="flex-shrink:0;padding:7px 16px;font-size:12.5px;${added?"opacity:.4":""}"
         onclick="installCatalogItem(${idx})">${added ? "已添加" : "安装"}</button>
     </div>`;
-  }).join("") : `<div style="font-size:12px;color:var(--faint);text-align:center;padding:20px;border:1px dashed var(--line);border-radius:14px">没找到匹配的服务器。可去 awesome-mcp-servers 目录找，再手动添加。</div>`;
+  }).join("") : `<div class="mcp-empty">没找到匹配的服务器。<br>可去 awesome-mcp-servers 目录找，再用「我的服务器 → 手动添加」加入。</div>`;
 }
 async function saveMcpServers(){
+  const tip = $("mcpFormTip");
+  const setTip = (msg, ok) => { tip.textContent = msg; tip.className = ok ? "mcp-tip-ok" : "mcp-tip-err"; };
   // 高级 JSON 改过就优先用它
   try{
     const adv = JSON.parse($("mcpJsonAdv").value);
     if(Array.isArray(adv.servers) && JSON.stringify(adv.servers) !== JSON.stringify(mcpServers)) mcpServers = adv.servers;
-  }catch(e){ $("mcpFormTip").textContent = "高级 JSON 格式有误，已按列表保存"; }
+  }catch(e){ setTip("高级 JSON 格式有误，已按列表保存"); }
   try{
     const r = await fetch("/api/mcp",{method:"POST",headers:{"Content-Type":"application/json"},
       body: JSON.stringify({servers: mcpServers})});
     const d = await r.json();
-    if(d.error){ $("mcpFormTip").textContent = "❌ " + d.error; return; }
+    if(d.error){ setTip("❌ " + d.error); return; }
     renderMcpMounted(d.mounted || {});
-    $("mcpFormTip").textContent = "";
+    setTip(`✅ 已挂载 ${d.total} 个工具`, true);
     setStatus(`✅ MCP 已挂载 ${d.total} 个外部工具`);
-  }catch(e){ $("mcpFormTip").textContent = "❌ 保存失败：" + e.message; }
+  }catch(e){ setTip("❌ 保存失败：" + e.message); }
 }
 async function saveMcpConfig(){
   const tip = $("mcpTip");
