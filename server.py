@@ -284,6 +284,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
             else:
                 self._send_json({"error": "not found"}, 404)
+        elif self.path == "/v1/models":
+            # OpenAI 兼容：模型列表（Open WebUI 添加连接时拉取）
+            self._send_json({"object": "list", "data": [
+                {"id": "xiaofan", "object": "model", "owned_by": "xiaofan"},
+                {"id": "xiaofan-tools", "object": "model", "owned_by": "xiaofan"},
+            ]})
         elif self.path == "/api/health":
             try:
                 import trafilatura
@@ -314,6 +320,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if self.path == "/api/chat":
                 self.handle_chat()
+            elif self.path == "/v1/chat/completions":
+                self.handle_openai_chat()
             elif self.path == "/api/extract":
                 self.handle_extract()
             elif self.path == "/api/models":
@@ -912,6 +920,152 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.flush()
             except Exception:
                 pass
+
+
+    # ---------- OpenAI 兼容层（Open WebUI / 任意 OpenAI 客户端） ----------
+    def _load_upstream_cfg(self):
+        """Open WebUI 只认识咱们这一个"模型"，真正的上游模型配置存在服务端：
+        agent_data/model_config.json（优先）或环境变量 XIAOFAN_BASE/KEY/MODEL。"""
+        cfg_path = os.path.join(ROOT, "agent_data", "model_config.json")
+        cfg = {}
+        try:
+            cfg = json.loads(open(cfg_path, "rb").read().decode("utf-8"))
+        except Exception:
+            pass
+        return {
+            "base": (cfg.get("baseUrl") or os.environ.get("XIAOFAN_BASE") or "").rstrip("/"),
+            "key": cfg.get("apiKey") or os.environ.get("XIAOFAN_KEY") or "",
+            "model": cfg.get("model") or os.environ.get("XIAOFAN_MODEL") or "",
+        }
+
+    def handle_openai_chat(self):
+        """POST /v1/chat/completions —— 标准 OpenAI 协议（流式/非流式）。
+        内部跑同一张 LangGraph 图（agent_graph），把图事件转译成 OpenAI chunk：
+        - 正文 token → delta.content
+        - 思考流 → delta.content 包 <think>…</think>（Open WebUI 原生折叠渲染）
+        - 工具/心跳等内部事件 → 不下发（工具在服务端闭环执行）"""
+        import agent_graph
+        import uuid as _uuid
+
+        payload = self._json_body()
+        up = self._load_upstream_cfg()
+        if not up["base"]:
+            self._send_json({"error": "服务端未配置上游模型：请写 agent_data/model_config.json "
+                              '{"baseUrl","apiKey","model"} 或设环境变量 XIAOFAN_BASE/KEY/MODEL'}, 500)
+            return
+
+        messages = payload.get("messages") or []
+        # 多模态块降级为纯文本（与 handle_chat 同规则），并注入小凡人设
+        for i, m in enumerate(messages):
+            c = m.get("content")
+            if isinstance(c, list):
+                txt = "\n".join(p.get("text", "") for p in c
+                                if isinstance(p, dict) and p.get("type") == "text")
+                messages[i] = {**m, "content": txt}
+        if not any(m.get("role") == "system" and "【你是谁】" in (m.get("content") or "")
+                   for m in messages):
+            messages.insert(0, {"role": "system", "content": self.PERSONA_RULES})
+
+        thread_id = str(payload.get("user") or "openwebui")   # Open WebUI 会带 user 字段
+        model_name = payload.get("model") or "xiaofan"
+
+        cfg = {"base": up["base"], "key": up["key"], "model": up["model"] or model_name,
+               "temperature": payload.get("temperature"),
+               "perm": {"allowCommand": False}, "threadId": thread_id,
+               "reasoning": "auto"}
+
+        # ---- 图事件 → OpenAI chunk 转译器 ----
+        cid = "chatcmpl-" + str(_uuid.uuid4())[:8]
+        created = int(time.time())
+        think_open = {"v": False}
+
+        def frame(delta) -> bytes:
+            chunk = {"id": cid, "object": "chat.completion.chunk", "created": created,
+                     "model": model_name, "choices": [{"index": 0, "delta": delta, "finish_reason": None}]}
+            return ("data: " + json.dumps(chunk, ensure_ascii=False) + "\n\n").encode("utf-8")
+
+        def write_chunk(delta):
+            """HTTP chunked 封帧后写出（Transfer-Encoding: chunked 必须带长度头）。"""
+            raw = frame(delta)
+            self.wfile.write(f"{len(raw):x}\r\n".encode() + raw + b"\r\n")
+            self.wfile.flush()
+
+        def graph_sse(obj):
+            """agent_graph 的事件回调 → OpenAI chunk 写出。"""
+            if "choices" not in obj:
+                return                      # 工具/心跳等内部事件不下发
+            d = obj["choices"][0].get("delta") or {}
+            rc = d.get("reasoning_content")
+            if rc:
+                if not think_open["v"]:
+                    think_open["v"] = True
+                    write_chunk({"content": "<think>\n"})
+                write_chunk({"content": rc})
+                return
+            c = d.get("content")
+            if c is not None:
+                if think_open["v"]:
+                    think_open["v"] = False
+                    write_chunk({"content": "\n</think>\n"})
+                write_chunk({"content": c})
+
+        # ---- SSE 头（与 /api/chat 同款手动 chunked） ----
+        if payload.get("stream", True):
+            self.close_connection = True
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "close")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            cfg["sse"] = graph_sse
+            try:
+                agent_graph.run_chat(cfg, messages)
+                if think_open["v"]:
+                    write_chunk({"content": "\n</think>\n"})
+                end = {"id": cid, "object": "chat.completion.chunk", "created": created,
+                       "model": model_name,
+                       "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+                self._sse(end)
+                # OpenAI 约定结束帧 data: [DONE]（不能 JSON 引号包裹），手写原始块
+                raw = b"data: [DONE]\n\n"
+                self.wfile.write(f"{len(raw):x}\r\n".encode() + raw + b"\r\n")
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                return
+            except Exception:
+                import traceback
+                traceback.print_exc()
+                try:
+                    self._sse({"error": "服务端处理出错，请查看终端日志。"})
+                except Exception:
+                    pass
+            finally:
+                try:
+                    self.wfile.write(b"0\r\n\r\n")
+                    self.wfile.flush()
+                except Exception:
+                    pass
+            return
+
+        # ---- 非流式：收集全文一次性返回 ----
+        acc = {"text": "", "reasoning": ""}
+        def collect(obj):
+            if "choices" not in obj:
+                return
+            d = obj["choices"][0].get("delta") or {}
+            if d.get("reasoning_content"):
+                acc["reasoning"] += d["reasoning_content"]
+            if d.get("content") is not None:
+                acc["text"] += d["content"]
+        cfg["sse"] = collect
+        agent_graph.run_chat(cfg, messages)
+        content = (("<think>\n" + acc["reasoning"] + "\n</think>\n") if acc["reasoning"] else "") + acc["text"]
+        self._send_json({"id": cid, "object": "chat.completion", "created": created,
+                         "model": model_name,
+                         "choices": [{"index": 0, "message": {"role": "assistant", "content": content},
+                                      "finish_reason": "stop"}],
+                         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}})
 
 
 def _extract_memory_async(base, key, model, user_text, answer):
