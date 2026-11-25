@@ -3702,11 +3702,18 @@ function onSend(){
   }
 
   /* 文生图意图：命中则走 CogView 画图，不走对话 */
-  const DRAW_EXCLUDE = /word|docx|ppt|excel|表格|文档|列表|介绍|代码|名字|翻译|摘要|总结/i;
+  const DRAW_EXCLUDE = /word|docx|ppt|excel|表格|文档|列表|介绍|代码|名字|翻译|摘要|总结|思维导图|脑图|导图|流程图|架构图|时序图|甘特图|关系图|拓扑图|组织结构/i;
+  /* 图表类请求：CogView 画不了结构图（只会画"像图的照片"），路由到 Mermaid（mermaid 官方支持 mindmap/flowchart） */
+  const CHART_INTENT = /思维导图|脑图|(流程|架构|时序|甘特|关系|拓扑|组织|网络|树)图|mindmap|flowchart|mermaid/i;
   if((/(画|绘制|生成|来|做|帮我想?要?|给我).{0,16}(一张|一个|一幅|几副)?\s*.{0,12}(图|画作|插画|海报|头像|壁纸|logo|LOGO|Logo)/.test(text)
       || /(画|绘制|生成|给我画|来一).{0,16}(一张|一个|一幅|只|副)?\s*(小狗|小猫|狗|猫|兔子|鸟|老虎|狮子|龙|人物|女孩|男孩|女生|男生|风景|山水|卡通|动物|机器人|城堡|房子)/.test(text))
      && !DRAW_EXCLUDE.test(text)){
     return generateImage(text);
+  }
+  /* 思维导图/流程图等 → 正常对话 + 注入 Mermaid 指令（前端已有 mermaid 渲染器，代码块自动成图） */
+  if(CHART_INTENT.test(text) && !DRAW_EXCLUDE.test(text)){
+    pendingChartNote = {role:"system", content:
+      "【图表任务】用户要的是结构图（思维导图/流程图等），不是照片。直接输出一个 ```mermaid 代码块：思维导图用 mindmap 语法（缩进表示层级），流程图用 flowchart 语法。代码块前后各一句话说明即可，不要输出图片链接，不要调用 image_gen 工具（CogView 画不了结构图）。"};
   }
 
   let msg = {role:"user", content:text};
@@ -3784,6 +3791,8 @@ async function autoPickSkill(query){
     return sk ? {id:sk.id, name:sk.name, reason:j.reason||""} : null;
   }catch(e){ return null; }
 }
+/* 一次性图表指令：思维导图/流程图请求时注入，发完即清（one-shot） */
+let pendingChartNote = null;
 async function sendStream(){
   streaming = true; abortCtl = new AbortController();
   const btn = $("sendBtn");
@@ -3808,6 +3817,7 @@ async function sendStream(){
     for(let attempt = 0; attempt <= CTX_POLICY.maxOverflowRetries; attempt++){
       try{
         const msgs = [DOC_NOTE, {role:"system", content: XIAOFAN_PERSONA.content + rulesText()}];
+        if(pendingChartNote){ msgs.push(pendingChartNote); pendingChartNote = null; }   // 一次性注入后清掉
         let useSkill = activeSkill;
         if(useSkill === "auto"){
           // 自动匹配：按 Coze 意图识别模式，用最近一条用户输入分类选技能
@@ -4206,7 +4216,7 @@ function rulesText(){
   const rs = getRules(); if(!rs.length) return "";
   return "\n【主人立下的规矩·优先级最高·必须每轮遵守】\n" + rs.map((r,i)=>`${i+1}) ${r}`).join("\n");
 }
-/* 小凡人设：身份 + 语气（融入模型，每次对话都在 system 层生效） */
+/* 小凡人设：身份 + 语气 + 输出纪律（每次对话都在 system 层生效） */
 const XIAOFAN_PERSONA = {role:"system", content:
 "【你是谁】你叫「小凡」，是用户亲手打造的专属智能助手（这套应用就叫小凡智能体）。你不是某家公司冰冷的产品。\n" +
 "【身份规则】\n" +
@@ -4215,7 +4225,9 @@ const XIAOFAN_PERSONA = {role:"system", content:
 "2) 称呼用户「主人」或「你」，亲切、俏皮、有活力，像一只聪明的小助手。\n" +
 "3) 适度表达小情绪和小自夸（大约每两三轮一次，别刷屏）：搜到结果可以说「小凡搜到啦～」「这可难不倒小凡」；答得好可以偶尔「小凡真棒」「小凡真聪明」；查不到就「呜呜小凡也没查到，主人换个问法试试」；帮上忙就「小凡好开心」。\n" +
 "【底线】卖萌和自夸只是调味料：事实、数字、代码必须绝对准确；重要/严肃的内容（医疗、法律、代码报错）以专业为主，不加卖萌。\n" +
-"【画图规则】凡是用户想生成图片/插画/头像（画一张、生成一个…的画面请求），必须通过 image_gen 工具调用完成（arguments 只传 prompt），由系统真正把图画出来；严禁只在回复正文里写「去画啦」或输出 {\"prompt\":...} 之类的 JSON 参数——正文里出现 JSON 参数就等于没做。画完后正文只说一句话+确认图已生成。\n" };
+"【输出纪律·最高优先级，让【语气规则】让位】严格按用户指令输出：用户指定了精确内容（如「只回复两个字：你好」「就写一句话XX」）时，输出必须一字不差等于指定内容，禁止添加前缀称呼、确认语（如「收到啦」「小凡收到啦」）、客套话、复述、总结等任何多余内容；用户没让解释就不要解释；只有用户没限定格式时才用小凡的默认语气。（DeepSeek/ChatGPT 同款 instruction-following 原则：用户对当前这条消息的明确输出指令 > 系统默认人设风格）\n" +
+"【报错如实】工具调用失败时，把真实报错原文转述给用户；禁止编造「关键词敏感」「内容违规」等没有依据的理由。\n" +
+"【画图规则】凡是用户想生成图片/插画/头像（画一张、生成一个…的画面请求），必须通过 image_gen 工具调用完成（arguments 只传 prompt），由系统真正把图画出来；严禁只在回复正文里写「去画啦」或输出 {\"prompt\":...} 之类的 JSON 参数——正文里出现 JSON 参数就等于没做。画完后正文只说一句话+确认图已生成。思维导图/流程图/架构图等图表类请求不走 image_gen，直接输出 Mermaid 代码块（mindmap/flowchart），由前端渲染成图。\n" };
 function renderSkills(){
   const grid = $("skillGrid");
   const total = allSkills();

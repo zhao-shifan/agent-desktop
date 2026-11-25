@@ -252,6 +252,40 @@
                     MCP 设置面板（设置 → 🔌 MCP 外部工具：
                     编辑 JSON → 保存即热重载挂载，显示已挂载工具）
                     ★ MCP 只在电脑服务模式生效（MCP 是本机进程）
+  v1.10 2026-11-25  四个问题逐项修复（全部有出处、可回测）：
+                    1) 指令遵循（修「只要你好两个字却带小凡收到啦」）
+                       人设保留，但 PERSONA_RULES / XIAOFAN_PERSONA
+                       新增【输出纪律·最高优先级】：用户指定精确输出时
+                       一字不差输出，语气规则让位（DeepSeek/ChatGPT 同款
+                       instruction-following 原则：用户对当前消息的明确
+                       输出指令 > 系统默认人设风格）
+                       位置：server.py PERSONA_RULES、index.html /
+                       手机独立版 / mobile 三端 XIAOFAN_PERSONA
+                    2) 思维导图误判（修「生图说关键词敏感」）
+                       根因：CogView 是文生图模型，画不了结构图；
+                       失败后模型把报错瞎说成"关键词敏感"
+                       修复：三端 DRAW_EXCLUDE 排除 思维导图/脑图/
+                       流程图 等，新增 CHART_INTENT → 注入一次性
+                       pendingChartNote 指令 → 模型输出 ```mermaid
+                       代码块 → 前端已有 mermaid 渲染器自动成图
+                       （mermaid 官方支持 mindmap 语法）
+                       并加【报错如实】规则：禁止编造敏感词借口
+                    3) 搜索提速（修"分析试题特别卡、对不上"）
+                       tools_layer.py：单源超时 15s→8s、整体等待
+                       20s→10s；web_search 加同词 10 分钟缓存；
+                       回灌片段 220→400 字（太短模型只能猜，答非所问）
+                       PERSONA_RULES 3.5 条放宽：一轮搜索信息够就
+                       立即作答，禁止反复换词重搜
+                    4) 产物画布：核实未删（index.html 停靠预览栏、
+                       手机独立版右侧画布都在），无需改动
+                    开源依据：QwenLM/Qwen-Agent（Apache-2.0，工具循环/
+                       trim_history/image_gen 的参考出处）；产物画布是
+                       通义网页版闭源功能，本项目自实现交互；
+                       instruction-following 写法对照 DeepSeek/ChatGPT
+                       官方 system prompt 实践
+                    测试：tests/_test_intent_rules.mjs（35 项断言全过）
+                       + tests/_test_tool_loop.py 端到端通过
+                    缓存：sw.js VERSION → xfan-v10（手机要强刷一次）
 
 ================================================================
 目录结构（v1.7 归类后）

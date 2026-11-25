@@ -1,5 +1,6 @@
-﻿# 运行产物 / 本地私有文件不入库
+# 运行产物 / 本地私有文件不入库
 .tmppip/
+AGENTS.md
 server/libs/
 config.local.js
 __pycache__/

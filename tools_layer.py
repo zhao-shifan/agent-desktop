@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """小凡智能体 · 工具层（function calling）
 
 模型只决定「要不要用工具、用哪个、传什么参数」；真正干活的是这里：
@@ -156,10 +156,11 @@ def _multi_engine_search(query, count):
     q = urllib.parse.quote(query)
     results, seen = [], set()
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(_SEARCH_SOURCES)) as ex:
-        futures = {ex.submit(_http, url % q, None, None, 15): (name, parser)
+        futures = {ex.submit(_http, url % q, None, None, 8): (name, parser)
                    for name, url, parser in _SEARCH_SOURCES}
         # 用 wait 而不是 as_completed：超时只放弃未完成的源，已完成的结果照常收集
-        done, _ = concurrent.futures.wait(futures, timeout=20)
+        # 单源 8s / 整体 10s：搜索只是参考信息，不值得让用户等 20 秒（快优先）
+        done, _ = concurrent.futures.wait(futures, timeout=10)
         for fut in done:
             name, parser = futures[fut]
             try:
@@ -179,11 +180,21 @@ def _multi_engine_search(query, count):
 
 
 def web_search(query, count=5, key=""):
-    """联网搜索：有 Key 走 Tavily，否则多引擎聚合（bing/360/ddg/baidu）后去重。"""
+    """联网搜索：有 Key 走 Tavily，否则多引擎聚合（bing/360/ddg/baidu）后去重。
+    同关键词 10 分钟内直接复用上次结果（缓存），避免重复提问再等一轮搜索。"""
     count = max(1, min(int(count or 5), 10))
     if not (query or "").strip():
         return "搜索关键词为空"
     q = query.strip()
+
+    # ---- 查询缓存（10 分钟）：memcached/redis 的极简本地版，进程内字典即可 ----
+    global _SEARCH_CACHE
+    try:
+        c_q, c_t, c_out = _SEARCH_CACHE
+        if c_q == (q, count) and time.time() - c_t < 600 and c_out:
+            return c_out
+    except NameError:
+        pass
 
     if key:
         try:
@@ -213,10 +224,17 @@ def web_search(query, count=5, key=""):
     for i, it in enumerate(items[:count], 1):
         block = "%d. %s\n   %s" % (i, it["title"], it["url"])
         if it.get("snippet"):
-            block += "\n   " + it["snippet"][:220]
+            # 400 字：片段太短模型只能靠猜，容易答非所问；太长又爆上下文，400 是平衡点
+            block += "\n   " + it["snippet"][:400]
         block += "\n   — 来源：%s" % it.get("source", "")
         lines.append(block)
-    return "\n".join(lines)
+
+    out = "\n".join(lines)
+    try:
+        _SEARCH_CACHE = ((q, count), time.time(), out)
+    except NameError:
+        pass
+    return out
 
 
 def get_location():
