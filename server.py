@@ -803,7 +803,9 @@ class Handler(BaseHTTPRequestHandler):
                    "temperature": temperature,
                    "maxTokens": payload.get("maxTokens"),
                    "reasoning": payload.get("reasoning") or "auto",
-                   "perm": perm, "sse": self._sse}
+                   "perm": perm, "sse": self._sse,
+                   # 断点续跑/检查点的会话标识：前端传 sessionId 则按会话隔离
+                   "threadId": payload.get("sessionId") or "default"}
             self._chat_with_tools(cfg, messages)
             return
 

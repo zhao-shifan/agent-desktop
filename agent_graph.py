@@ -59,6 +59,8 @@ class ChatState(TypedDict, total=False):
     rounds: int             # 已进行的调模型轮数
     final_text: str         # 最终回答
     pending_tools: list     # 本轮待执行 tool_calls（AIMessage 上的）
+    utext: str              # 最近一条用户输入（记忆抽取用）
+    streamed: bool          # token 是否已实时流出（True 则 finalize 不再补切片）
 
 
 # ----------------------------------------------------------------------
@@ -126,9 +128,10 @@ def build_graph(cfg):
             pass
         return {"messages": msgs, "rounds": 0, "final_text": "", "utext": utext}
 
-    # ---------------- 节点：call_model ----------------
+    # ---------------- 节点：call_model（token 级流式） ----------------
     def call_model(state: ChatState) -> dict:
-        """调一次模型；带心跳、限流重试、reasoning 转发、恢复层。"""
+        """流式调一次模型：token 到一个转发一个（打字机效果）；
+        带心跳、限流重试、reasoning 转发、恢复层、工具调用判定。"""
         rounds = state.get("rounds", 0)
         msgs = list(state["messages"])
         # 轮数上限：不再带工具调模型，直接进入 finalize 的超轮收尾
@@ -149,13 +152,39 @@ def build_graph(cfg):
             t.start()
             return beat
 
-        ai = None
+        # 恢复层保护缓冲：正文若以 ``` 或 { 开头（疑似漏发工具 JSON），先扣住不转发，
+        # 确认不是工具 JSON 再流出去 —— 打字机效果与恢复层洁净度兼得
+        held = {"buf": ""}
+
+        def _flush(force=False):
+            if force or not re.match(r"\s*(```|\{)", held["buf"]):
+                if held["buf"]:
+                    sse({"choices": [{"delta": {"content": held["buf"]}}]})
+                    held["buf"] = ""
+
+        assembled = None
         for attempt in range(3):     # 0,1,2 → 最多 2 次重试
             beat = _beat_flag()
             t0 = time.time()
             try:
-                print(f"[第{rounds + 1}轮] 请求模型中（LangGraph，深度思考会久一些）…", flush=True)
-                ai = llm.invoke(trim_history(msgs))
+                print(f"[第{rounds + 1}轮] 流式请求模型中（LangGraph）…", flush=True)
+                for chunk in llm.stream(trim_history(msgs)):
+                    # thinking 文字实时转发（glm/deepseek 推理模型）
+                    try:
+                        rc = (chunk.additional_kwargs or {}).get("reasoning_content") or ""
+                    except Exception:
+                        rc = ""
+                    if rc and rc.strip():
+                        sse({"choices": [{"delta": {"reasoning_content": rc}}]})
+                    # 正文 token 实时转发（打字机）
+                    c = chunk.content
+                    if isinstance(c, list):     # 多模态块只取文本
+                        c = "".join(p.get("text", "") for p in c if isinstance(p, dict))
+                    if c:
+                        held["buf"] += c
+                        _flush()
+                    assembled = chunk if assembled is None else assembled + chunk
+                _flush(force=True)
                 print(f"[第{rounds + 1}轮] 模型响应耗时 {time.time() - t0:.1f}s", flush=True)
                 break
             except urllib.error.HTTPError as e:
@@ -164,30 +193,33 @@ def build_graph(cfg):
                     sse({"choices": [{"delta": {"content":
                         f"（接口限流/波动，{wait}s 后自动重试 {attempt + 1}/2…）"}}]})
                     time.sleep(wait)
+                    assembled = None
                     continue
                 raise
             finally:
                 beat["on"] = False
 
-        # thinking 文字实时转发（glm/deepseek 推理模型）
+        if assembled is None:
+            raise RuntimeError("模型无响应")
+
+        # thinking 文字兜底（非流式场景）
         rc = ""
         try:
-            rc = (ai.additional_kwargs or {}).get("reasoning_content") or ""
+            rc = (assembled.additional_kwargs or {}).get("reasoning_content") or ""
         except Exception:
             pass
-        if rc and rc.strip():
-            sse({"choices": [{"delta": {"reasoning_content": rc}}]})
 
         try:
             tools_layer.trace_event("llm", {"round": rounds + 1,
                                             "elapsed": round(time.time() - t0, 1),
-                                            "tool_calls": len(ai.tool_calls or [])})
+                                            "tool_calls": len(assembled.tool_calls or [])})
         except Exception:
             pass
 
+        oai = convert_to_openai_messages([assembled])[0]
+
         # ---- 无 tool_calls：先过恢复层，再判定是否最终回答 ----
-        if not (ai.tool_calls or []):
-            oai = convert_to_openai_messages([ai])[0]
+        if not (assembled.tool_calls or []):
             final_text = oai.get("content") or ""
             if not str(final_text).strip() and rc:
                 final_text = rc
@@ -211,19 +243,20 @@ def build_graph(cfg):
                     rres = f"工具执行失败：{e}"
                 sse({"tool": {"id": tc["id"], "name": rname,
                               "status": "done", "preview": str(rres)[:400]}})
+                # JSON 正文被 held 缓冲扣住了没流出去 → 清洗后的文字由 finalize 补流
                 return {"messages": msgs + [
                             {"role": "assistant", "content": str(rclean).strip(), "tool_calls": [tc]},
                             {"role": "tool", "tool_call_id": tc["id"],
                              "content": str(rres)[:MAX_CHARS]},
                         ],
-                        "rounds": rounds + 1, "final_text": ""}
+                        "rounds": rounds + 1, "final_text": "", "streamed": False}
+            # 正常最终回答：token 已经实时流出，不再重复切片
             return {"messages": msgs + [oai], "rounds": rounds + 1,
-                    "final_text": str(final_text), "pending_tools": []}
+                    "final_text": str(final_text), "pending_tools": [], "streamed": True}
 
-        # ---- 有 tool_calls：暂存到 pending_tools，交给 exec_tools 节点 ----
-        oai = convert_to_openai_messages([ai])[0]
+        # ---- 有 tool_calls：正文已实时流出，暂存工具调用交给 exec_tools ----
         return {"messages": msgs + [oai], "rounds": rounds + 1,
-                "pending_tools": oai.get("tool_calls") or []}
+                "pending_tools": oai.get("tool_calls") or [], "streamed": True}
 
     # ---------------- 条件路由 ----------------
     def route(state: ChatState) -> str:
@@ -294,9 +327,11 @@ def build_graph(cfg):
             except Exception:
                 final_text = final_text or "（工具调用轮数达到上限，请补充信息后重试）"
 
-        # 把最终答案切成小段，前端按流式渲染
-        for i in range(0, len(final_text), 24):
-            sse({"choices": [{"delta": {"content": final_text[i:i + 24]}}]})
+        # token 已由 call_model 实时流出时不再重复切片；只有恢复层清洗文字、
+        # 超轮收尾总结这类"事后才知道的文本"才在这里补流
+        if not state.get("streamed"):
+            for i in range(0, len(final_text), 24):
+                sse({"choices": [{"delta": {"content": final_text[i:i + 24]}}]})
         try:
             tools_layer.trace_event("final", {"rounds": len(msgs), "answer_len": len(final_text)})
         except Exception:
@@ -324,7 +359,16 @@ def build_graph(cfg):
                             {"exec_tools": "exec_tools", "finalize": "finalize"})
     g.add_edge("exec_tools", "call_model")
     g.add_edge("finalize", END)
-    return g.compile()
+    # Checkpointer：按 thread_id 保存每步状态快照，支持断点恢复/时间旅行。
+    # 开发用 MemorySaver（内存）；线上换 RedisSaver/PostgresSaver 只需改这里。
+    return g.compile(checkpointer=_CHECKPOINTER)
+
+
+# 进程内共享的检查点器（开发版）。线上部署时替换为：
+#   from langgraph.checkpoint.redis import RedisSaver      # pip install langgraph-checkpoint-redis
+#   from langgraph.checkpoint.postgres import PostgresSaver # pip install langgraph-checkpoint-postgres
+from langgraph.checkpoint.memory import MemorySaver
+_CHECKPOINTER = MemorySaver()
 
 
 def _extract_memory_async(cfg, user_text, answer):
@@ -337,8 +381,19 @@ def _extract_memory_async(cfg, user_text, answer):
 
 
 def run_chat(cfg, messages):
-    """入口：编译图并执行。SSE 已由节点内回调发出；本函数阻塞到对话结束。"""
+    """入口：编译图并执行。SSE 已由节点内回调发出；本函数阻塞到对话结束。
+
+    LangSmith 全链路追踪：设置环境变量即自动生效（langchain 原生支持，零代码）：
+        LANGSMITH_TRACING=true
+        LANGSMITH_API_KEY=lsv2_...      # smith.langchain.com 免费注册
+        LANGSMITH_PROJECT=xiaofan-agent # 可选，默认 project
+    """
     graph = build_graph(cfg)
-    final = graph.invoke({"messages": list(messages)},
-                         config={"recursion_limit": (MAX_ROUNDS + 4) * 4})
+    thread_id = str(cfg.get("threadId") or "default")
+    final = graph.invoke(
+        {"messages": list(messages)},
+        config={
+            "configurable": {"thread_id": thread_id},   # 断点续跑/恢复的会话标识
+            "recursion_limit": (MAX_ROUNDS + 4) * 4,    # 防死循环兜底
+        })
     return final.get("final_text", "")
