@@ -949,6 +949,11 @@ class Handler(BaseHTTPRequestHandler):
 
         payload = self._json_body()
         up = self._load_upstream_cfg()
+        # Key 优先级：Open WebUI 连接里用户粘贴的（Authorization Bearer，存于 WebUI
+        # 服务端数据库、换设备登录保留）> 服务端 model_config.json 兜底
+        auth = (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
+        if auth:
+            up["key"] = auth
         if not up["base"]:
             self._send_json({"error": "服务端未配置上游模型：请写 agent_data/model_config.json "
                               '{"baseUrl","apiKey","model"} 或设环境变量 XIAOFAN_BASE/KEY/MODEL'}, 500)
