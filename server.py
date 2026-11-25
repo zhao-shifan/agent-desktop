@@ -173,36 +173,15 @@ def wallpaper_card_ids():
 
 
 def _est_len(msgs):
-    """粗略估算消息列表总字符数（Qwen-Agent trim_history 的轻量版）。"""
-    total = 0
-    for m in msgs:
-        total += len(str(m.get("content") or ""))
-        for tc in (m.get("tool_calls") or []):
-            total += len(str((tc.get("function") or {}).get("arguments") or ""))
-    return total
+    """兼容旧调用：实现在 server_helpers（server 与 agent_graph 共用）。"""
+    import server_helpers
+    return server_helpers._est_len(msgs)
 
 
 def _trim_history(msgs, budget=120000):
-    """上下文预算裁剪：超预算时压缩较早的 tool 结果与历史正文（保留 system）。
-    参考 Qwen-Agent 的 trim_history：近几轮逐字保留，老消息摘要化，防上下文爆炸。"""
-    if _est_len(msgs) <= budget:
-        return msgs
-    keep_recent = 8          # 最近 8 条逐字保留
-    n = len(msgs)
-    out = []
-    for i, m in enumerate(msgs):
-        role = m.get("role")
-        if role == "system" or i >= n - keep_recent:
-            out.append(m)
-            continue
-        c = str(m.get("content") or "")
-        if role == "tool":
-            out.append({**m, "content": "（历史工具结果已省略）" if c else c})
-        elif len(c) > 600:
-            out.append({**m, "content": c[:600] + "…（历史消息已截断）"})
-        else:
-            out.append(m)
-    return out
+    """兼容旧调用：实现在 server_helpers（server 与 agent_graph 共用）。"""
+    import server_helpers
+    return server_helpers.trim_history(msgs, budget)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -818,9 +797,14 @@ class Handler(BaseHTTPRequestHandler):
                 body["tool_choice"] = "auto"
             return body
 
-        # ---------- 带工具：服务端自己跑 function-calling 循环 ----------
+        # ---------- 带工具：LangGraph 对话图（agent_graph.py） ----------
         if tools_on:
-            self._chat_with_tools(base, key, messages, build_body, perm)
+            cfg = {"base": base, "key": key, "model": model,
+                   "temperature": temperature,
+                   "maxTokens": payload.get("maxTokens"),
+                   "reasoning": payload.get("reasoning") or "auto",
+                   "perm": perm, "sse": self._sse}
+            self._chat_with_tools(cfg, messages)
             return
 
         upstream_body = build_body(messages, bool(payload.get("stream", True)), False)
@@ -885,8 +869,12 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n")
             self.wfile.flush()
 
-    def _chat_with_tools(self, base, key, messages, build_body, perm):
-        """模型要工具 → 本地执行 → 结果回灌 → 最多 4 轮，最后把答案流式吐给前端。"""
+    def _chat_with_tools(self, cfg, messages):
+        """LangGraph 版对话图（v2.0）：prepare → call_model ⇄ exec_tools → finalize。
+        原手写 function-calling 循环已整体迁移到 agent_graph.py，本方法只负责
+        SSE 头与异常兜底；所有行为（心跳/重试/预搜索/记忆/恢复层/并发工具/
+        超轮收尾）在图内逐项保留，SSE 事件格式与旧协议完全一致。"""
+        import agent_graph
         self.close_connection = True
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -894,177 +882,21 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
-
-        def call_upstream(msgs, _attempt=0):
-            req = urllib.request.Request(
-                base + "/chat/completions",
-                data=json.dumps(build_body(_trim_history(msgs), False, True)).encode("utf-8"),
-                headers={"Content-Type": "application/json",
-                         "Authorization": f"Bearer {key}"},
-                method="POST",
-            )
-            # 思考心跳：模型响应慢时前端也能看到状态，而不是空白干等
-            import threading
-            beat = {"on": True}
-
-            def _heartbeat():
-                start = time.time()
-                while beat["on"]:
-                    if time.time() - start >= 6:
-                        self._sse({"thinking": {"elapsed": round(time.time() - start)}})
-                    time.sleep(2)
-
-            t = threading.Thread(target=_heartbeat, daemon=True)
-            t.start()
-            try:
-                with urllib.request.urlopen(req, timeout=300) as resp:
-                    return json.loads(resp.read().decode("utf-8"))
-            except urllib.error.HTTPError as e:
-                # 免费模型常见 429/5xx：指数退避重试（参考 smolagents/各类 SDK 的 retry-with-backoff）
-                if e.code in (429, 500, 502, 503, 504) and _attempt < 2:
-                    wait = (2 ** _attempt) * 3
-                    self._sse({"choices": [{"delta": {"content": f"（接口限流/波动，{wait}s 后自动重试 {_attempt + 1}/2…）"}}]})
-                    time.sleep(wait)
-                    return call_upstream(msgs, _attempt + 1)
-                raise
-            finally:
-                beat["on"] = False
-
         try:
-            msgs = list(messages)   # 人设+工具规则已在 handle_chat 入口注入
-            # 强制预搜索（DeepSeek 官方同款思路）：事实/时效类问题不依赖模型自觉，
-            # 先执行搜索、结果直接注入上下文，模型只能基于真实结果回答
-            try:
-                _utext = next((m.get("content") for m in reversed(messages)
-                               if m.get("role") == "user" and isinstance(m.get("content"), str)), "")
-                if _utext and re.search(
-                        r"(最新|近日|热点|新闻|多少钱|价格|哪一年|哪年|是谁|搜一?下|查一?下)",
-                        _utext):
-                    # 问答改写：去掉口语外衣，留下核心搜索词（DeepSeek 的 query rewrite 轻量版）
-                    _q = re.sub(r"^(你知道|请问|帮我|麻烦|给我|帮我查?一?下|查一下|搜一下|告诉我|你知道.*吗)+",
-                                "", _utext.strip())
-                    _q = re.sub(r"(吗|呢|吧|呀|啊|么样|怎么样|咋样|？|\?)+$", "", _q).strip() or _utext.strip()
-                    _q = _q[:40]
-                    print(f"[预搜索] 改写后关键词：{_q}", flush=True)
-                    _pres = tools_layer.web_search(_q)
-                    msgs.append({"role": "system", "content":
-                        "以下是系统自动预取的搜索结果（编号 1/2/3…）。回答规则：\n"
-                        "1) 必须基于这些内容回答，不许使用搜索结果之外的\"记忆\"；\n"
-                        "2) 引用到某条结果时，在句子后面标注编号，如 [1]、[2]；\n"
-                        "3) 回答最后单独一行列出用到的来源：[1] 标题 - 链接；\n"
-                        "4) 不要重复调用 web_search。\n搜索结果：\n" + str(_pres)[:4000]})
-            except Exception:
-                pass
-            final_text = ""
-            reached_limit = False
-            for _round in range(tools_layer.MAX_ROUNDS):
-                try:
-                    _r0 = time.time()
-                    print(f"[第{_round + 1}轮] 请求模型中（深度思考会久一些）…", flush=True)
-                    data = call_upstream(msgs)
-                    print(f"[第{_round + 1}轮] 模型响应耗时 {time.time()-_r0:.1f}s", flush=True)
-                except urllib.error.HTTPError as e:
-                    detail = e.read().decode("utf-8", errors="replace")[:600]
-                    hint = ""
-                    if e.code in (400, 404, 422):
-                        hint = "\n\n（当前模型/平台可能不支持工具调用，换 glm-4-flash、deepseek-chat 等支持 function calling 的模型试试）"
-                    final_text = f"上游接口返回 {e.code}: {detail}{hint}"
-                    break
-                msg = ((data.get("choices") or [{}])[0]).get("message") or {}
-                # 把模型的思考文字实时转发给前端（推理模型如 glm-5.3-flash / deepseek-reasoner 有这段）
-                rc = msg.get("reasoning_content") or ""
-                if rc.strip():
-                    self._sse({"choices": [{"delta": {"reasoning_content": rc}}]})
-                tool_calls = msg.get("tool_calls") or []
-                if not tool_calls:
-                    final_text = msg.get("content") or ""
-                    if not final_text.strip() and rc:
-                        final_text = rc
-                    # 恢复层：模型把工具参数写成正文 → 框架层替它真正执行，
-                    # 把结果回灌模型收尾（Qwen-Agent _detect_tool 同思路）
-                    try:
-                        rec = _recover_tool_call(final_text,
-                                                 {t["function"]["name"] for t in tools_layer.TOOL_DEFS})
-                    except Exception:
-                        rec = None
-                    if rec:
-                        _rname, _rargs, _rclean = rec
-                        _tc = {"id": "rec-%d" % int(time.time() * 1000), "type": "function",
-                               "function": {"name": _rname, "arguments": json.dumps(_rargs, ensure_ascii=False)}}
-                        print(f"[恢复层] 模型漏发 tool_call，框架已补执行：{_rname}({_json_brief(_rargs)})", flush=True)
-                        self._sse({"tool": {"id": _tc["id"], "name": _rname,
-                                            "args": _tc["function"]["arguments"], "status": "running"}})
-                        try:
-                            _rres = tools_layer.run_tool(_tc, perm)
-                        except Exception as _e:
-                            _rres = f"工具执行失败：{_e}"
-                        self._sse({"tool": {"id": _tc["id"], "name": _rname,
-                                            "status": "done", "preview": str(_rres)[:400]}})
-                        final_text = _rclean.strip()
-                        msgs.append({"role": "assistant", "content": final_text,
-                                     "tool_calls": [_tc]})
-                        msgs.append({"role": "tool", "tool_call_id": _tc["id"],
-                                     "content": str(_rres)[:tools_layer.MAX_CHARS]})
-                        continue   # 回灌后让模型基于真实结果再收尾一轮（MAX_ROUNDS 兜底）
-                    break
-                msgs.append({"role": "assistant",
-                             "content": msg.get("content") or "",
-                             "tool_calls": tool_calls})
-                # 并发执行本轮全部 tool_calls（参考 smolagents process_tool_calls 的线程池做法）
-                def _run_one(tc):
-                    fn = tc.get("function") or {}
-                    t0 = time.time()
-                    result = tools_layer.run_tool(tc, perm)
-                    # 工具调用日志：方便排查"回复为什么慢"
-                    try:
-                        import json as _json
-                        brief = str(fn.get("arguments") or "")[:80]
-                        print(f"[工具] {fn.get('name')}({brief}) 耗时 {time.time()-t0:.1f}s",
-                              flush=True)
-                    except Exception:
-                        pass
-                    return tc, fn.get("name"), result
-                if len(tool_calls) > 1:
-                    with concurrent.futures.ThreadPoolExecutor(
-                            max_workers=min(4, len(tool_calls))) as ex:
-                        futures = [ex.submit(_run_one, tc) for tc in tool_calls]
-                        pairs = []
-                        for fut in concurrent.futures.as_completed(futures):
-                            pairs.append(fut.result())
-                    # 按模型给出的原始顺序回灌，保持消息顺序稳定
-                    order = {id(tc): i for i, tc in enumerate(tool_calls)}
-                    pairs.sort(key=lambda p: order[id(p[0])])
-                else:
-                    pairs = [_run_one(tool_calls[0])]
-                for tc, name, result in pairs:
-                    self._sse({"tool": {"id": tc.get("id"), "name": name,
-                                        "args": (tc.get("function") or {}).get("arguments") or "",
-                                        "status": "running"}})
-                    self._sse({"tool": {"id": tc.get("id"), "name": name,
-                                        "status": "done", "preview": str(result)[:400]}})
-                    msgs.append({"role": "tool", "tool_call_id": tc.get("id"),
-                                 "content": str(result)[:tools_layer.MAX_CHARS]})   # 统一截断，防上下文爆炸
-            else:
-                reached_limit = True
-
-            if reached_limit:
-                # 超轮收尾：不是硬编码话术，而是让模型基于已有信息直接总结
-                # （参考 smolagents _handle_max_steps_reached → provide_final_answer）
-                msgs.append({"role": "user", "content":
-                    "工具调用轮数已达上限，不能再调用任何工具。请立即基于上面已经拿到的信息给出你能给出的最佳回答；"
-                    "如果关键信息确实缺失，明确指出缺什么、让用户补充。"})
-                try:
-                    data = call_upstream(msgs)
-                    msg = ((data.get("choices") or [{}])[0]).get("message") or {}
-                    final_text = msg.get("content") or final_text or "（工具调用轮数达到上限，请补充信息后重试）"
-                except Exception:
-                    final_text = final_text or "（工具调用轮数达到上限，请补充信息后重试）"
-
-            # 把最终答案切成小段，前端按流式渲染
-            for i in range(0, len(final_text), 24):
-                self._sse({"choices": [{"delta": {"content": final_text[i:i + 24]}}]})
+            agent_graph.run_chat(cfg, messages)
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="replace")[:600]
+            hint = ""
+            if e.code in (400, 404, 422):
+                hint = "\n\n（当前模型/平台可能不支持工具调用，换 glm-4-flash、deepseek-chat 等支持 function calling 的模型试试）"
+            tools_layer.trace_event("llm_error", {"code": e.code})
+            self._sse({"choices": [{"delta": {"content": f"上游接口返回 {e.code}: {detail}{hint}"}}]})
         except (BrokenPipeError, ConnectionResetError):
             return
+        except ImportError as e:
+            import traceback
+            traceback.print_exc()
+            self._sse({"choices": [{"delta": {"content": f"缺少依赖：{e}"}}]})
         except Exception:
             import traceback
             traceback.print_exc()
@@ -1078,6 +910,42 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.flush()
             except Exception:
                 pass
+
+
+def _extract_memory_async(base, key, model, user_text, answer):
+    """mem0 同思路：对话结束后用一次便宜的后台调用抽取「用户长期事实」，
+    去重合并进 memory.json。失败静默（记忆是锦上添花，不能拖累主对话）。"""
+    import threading
+
+    def work():
+        try:
+            sys_p = ("你是记忆抽取器。从这段对话中提取值得跨对话长期记住的「用户事实」"
+                     "（身份/偏好/正在做的事/明确立下的规矩），第三人称，每条一句话不超过40字。"
+                     "寒暄、临时任务细节、一次性问题不要。只输出 JSON 字符串数组，"
+                     "如 [\"用户在开发小凡智能体\"]；没有值得记的就输出 []。")
+            body = json.dumps({
+                "model": model, "temperature": 0, "stream": False, "max_tokens": 200,
+                "messages": [{"role": "system", "content": sys_p},
+                             {"role": "user", "content": "用户：" + user_text[:800] + "\n小凡：" + answer[:800]}]})
+            req = urllib.request.Request(
+                base + "/chat/completions", data=body.encode("utf-8"),
+                headers={"Content-Type": "application/json",
+                         "Authorization": "Bearer " + (key or "")},
+                method="POST")
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            txt = (((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or ""
+            m = re.search(r"\[[\s\S]*\]", txt)
+            if not m:
+                return
+            facts = json.loads(m.group(0))
+            if isinstance(facts, list) and facts:
+                print("[记忆] 抽取到 %d 条用户事实：%s" % (len(facts), facts), flush=True)
+                tools_layer.save_memory_facts([str(f) for f in facts])
+        except Exception:
+            pass
+
+    threading.Thread(target=work, daemon=True).start()
 
 
 def lan_ip():
