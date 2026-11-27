@@ -2696,7 +2696,7 @@ function appendMsg(role, text, animate=true){
     </div>`;
   $("chatInner").appendChild(div);
   div.id = "msg-"+idx;   // 大纲导航锚点
-  if(animate) scrollBottom();
+  if(animate) scrollBottom(true);   // 发消息/新回复气泡是用户主动行为，强制回底部（历史回放 animate=false 不受影响）
   renderMsgNav();
   return div.querySelector(".content");
 }
@@ -3103,15 +3103,30 @@ function scrollBottom(force){
     if(dist > 120) return;
   }
   c.scrollTop = c.scrollHeight;
+  // 复查一帧：图片/markdown 重排可能在这一帧之后才把高度撑开
+  requestAnimationFrame(()=>{
+    if(c.scrollHeight - c.scrollTop - c.clientHeight > 2) c.scrollTop = c.scrollHeight;
+  });
 }
-/* 流式渲染节流：每个 SSE delta 都全量重渲染是 O(n²)，用 rAF 每帧最多渲染一次 */
+/* 流式渲染节流：每个 SSE delta 都全量重渲染是 O(n²)，按时间限频每秒约 8 次；
+   内容没变化时跳过，避免整块 innerHTML 每帧重建导致的卡顿和闪烁 */
 let _streamRaf = null;
+let _streamLast = 0;
+let _streamLastHtml = "";
+const STREAM_RENDER_MS = 120;   /* 两次全量重渲染的最小间隔（毫秒） */
 function streamRenderThrottled(el, html){
   if(_streamRaf) return;
-  _streamRaf = requestAnimationFrame(()=>{
+  const wait = Math.max(0, STREAM_RENDER_MS - (performance.now() - _streamLast));
+  _streamRaf = setTimeout(()=>{
     _streamRaf = null;
-    el.innerHTML = html();
-  });
+    const h = html();
+    if(h !== _streamLastHtml){
+      _streamLastHtml = h;
+      el.innerHTML = h;
+      scrollBottom();
+    }
+    _streamLast = performance.now();
+  }, wait);
 }
 /* 可折叠思考块（DeepSeek 式）：thinking 时展开，最终答案开始后自动折叠 */
 function thinkBoxHtml(think, done){
@@ -3840,7 +3855,7 @@ async function sendStream(){
           : {"Content-Type":"application/json"};
         const body = STANDALONE
           ? {model:cfg.model, messages:msgs, stream:true, temperature:parseFloat(cfg.temperature ?? 0.7), reasoning:cfg.reasoning||"auto"}
-          : {...cfg, messages:msgs};
+          : {...cfg, messages:msgs, sessionId:curId};   // sessionId：后端按会话隔离 checkpointer
         const toolLog = [];
         /* 快车道：纯问候/寒暄类消息跳过工具和深度思考，秒回
            （工具说明书和推理模型都会明显拖慢简单消息） */
@@ -3903,12 +3918,15 @@ async function sendStream(){
                 if(j.tool){
                   const t = j.tool;
                   if(t.status === "running"){
-                    toolLog.push({name:t.name, args:t.args, status:"running"});
+                    toolLog.push({id:t.id, name:t.name, args:t.args, status:"running"});
       setStatus((TOOL_ICONS[t.name]||"🛠") + " 小凡正在" + (TOOL_NAMES[t.name]||t.name) + "，滴滴滴…");
                     el.innerHTML = toolLineHtml(toolLog) + mdRender(full);
                     scrollBottom();
                   }else if(t.status === "done"){
-                    const item = toolLog.find(x=>x.name===t.name && x.status==="running");
+                    /* 按 tool_call id 精确匹配：同名工具并发（如两路 web_search）不会串状态；
+                       事件没带 id 时回退按名字匹配，保持向后兼容 */
+                    const item = (t.id && toolLog.find(x=>x.id===t.id))
+                              || toolLog.find(x=>!x.id && x.name===t.name && x.status==="running");
                     if(item){ item.status = "done"; item.preview = t.preview || ""; }
                     setStatus("✨ 小凡搞定啦，正在整理答案…");
                     el.innerHTML = toolLineHtml(toolLog) + mdRender(full);

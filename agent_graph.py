@@ -52,6 +52,105 @@ MAX_CHARS = tools_layer.MAX_CHARS
 
 
 # ----------------------------------------------------------------------
+# MCP 工具（langchain-mcp-adapters 官方适配器）
+# 配置沿用 agent_data/mcp_servers.json：
+#   stdio 服务器：{"name","command","args"} → transport="stdio"
+#   http 服务器： {"name","url"[,"transport"]} → transport="streamable_http"/"sse"
+# 与 tools_layer 的零依赖 stdio 客户端并存：那边负责兜底与管理面板数据源，
+# 这边把工具以 LangChain StructuredTool 形式并入 bind_tools。
+# 加载结果模块级缓存；失败只打日志并降级为仅内置工具，绝不拖垮主对话。
+# ----------------------------------------------------------------------
+_MCP_LC_TOOLS: list = []            # 缓存的 BaseTool/StructuredTool 列表
+_MCP_LC_BY_NAME: dict = {}          # name -> BaseTool（exec_tools 直连执行用）
+_MCP_LC_LOADED = {"done": False}
+
+
+def mcp_lc_reset():
+    """失效缓存：/api/mcp 保存配置后调用，下次对话重新加载 MCP 工具。"""
+    _MCP_LC_TOOLS.clear()
+    _MCP_LC_BY_NAME.clear()
+    _MCP_LC_LOADED["done"] = False
+
+
+def _mcp_lc_connections():
+    """把 mcp_servers.json 翻译成 MultiServerMCPClient 的 connections dict。
+    transports 依据 langchain-mcp-adapters 0.3.2 sessions.py：
+    StdioConnection{transport:"stdio",command,args} /
+    StreamableHttpConnection{transport:"streamable_http",url} /
+    SSEConnection{transport:"sse",url}。"""
+    cfg = json.loads(open(tools_layer._mcp_config_path(), "rb").read().decode("utf-8"))
+    conns = {}
+    for s in (cfg.get("servers") or []):
+        if not isinstance(s, dict):
+            continue
+        name = str(s.get("name") or "").strip()
+        if not name:
+            continue
+        if s.get("url"):
+            conns[name] = {"url": str(s["url"]),
+                           "transport": s.get("transport") or "streamable_http"}
+        elif s.get("command"):
+            conns[name] = {"command": str(s["command"]),
+                           "args": [str(a) for a in (s.get("args") or [])],
+                           "transport": "stdio"}
+    return conns
+
+
+def _load_mcp_lc_tools():
+    """同步加载（内部转 asyncio.run），带缓存。任何失败只打日志并返回空列表。"""
+    if _MCP_LC_LOADED["done"]:
+        return _MCP_LC_TOOLS
+    _MCP_LC_LOADED["done"] = True
+    try:
+        conns = _mcp_lc_connections()
+        if not conns:
+            return _MCP_LC_TOOLS
+        from langchain_mcp_adapters.client import MultiServerMCPClient
+        client = MultiServerMCPClient(conns, tool_name_prefix=True)
+        import asyncio
+        try:
+            asyncio.get_running_loop()
+            # 已在事件循环内（理论上不会，LangGraph 同步 invoke）：换线程跑
+            import concurrent.futures as _cf
+            with _cf.ThreadPoolExecutor(1) as ex:
+                tools = ex.submit(asyncio.run, client.get_tools()).result(timeout=120)
+        except RuntimeError:
+            tools = asyncio.run(client.get_tools())
+        builtin_names = {t["function"]["name"] for t in tools_layer.TOOL_DEFS}
+        for t in tools:
+            n = getattr(t, "name", "")
+            if not n or n in builtin_names or n in _MCP_LC_BY_NAME:
+                continue
+            _MCP_LC_BY_NAME[n] = t
+            _MCP_LC_TOOLS.append(t)
+        if _MCP_LC_TOOLS:
+            print(f"[MCP-adapters] 已挂载 {len(_MCP_LC_TOOLS)} 个工具："
+                  f"{list(_MCP_LC_BY_NAME)}", flush=True)
+    except Exception as e:
+        print(f"[MCP-adapters] 加载失败，降级为仅内置工具：{e}", flush=True)
+        _MCP_LC_TOOLS.clear()
+        _MCP_LC_BY_NAME.clear()
+    return _MCP_LC_TOOLS
+
+
+def _invoke_mcp_lc_tool(name, args_json):
+    """直连执行 adapter 返回的 BaseTool（每次调用自动开新 MCP 会话）。"""
+    tool = _MCP_LC_BY_NAME.get(name)
+    if tool is None:
+        return "未知 MCP 工具：%s" % name
+    try:
+        kwargs = json.loads(args_json) if isinstance(args_json, str) and args_json.strip() else {}
+        return str(tool.invoke(kwargs))[:MAX_CHARS]
+    except Exception as e:
+        return "工具执行失败：%s" % e
+
+
+def _all_bind_tools():
+    """内置 OpenAI function 定义 + MCP adapter 工具，供 bind_tools 使用。"""
+    return list(tools_layer.TOOL_DEFS) + _load_mcp_lc_tools()
+
+
+# ----------------------------------------------------------------------
 # State 定义
 # ----------------------------------------------------------------------
 class ChatState(TypedDict, total=False):
@@ -85,10 +184,11 @@ def build_graph(cfg):
             api_key=cfg["key"] or "EMPTY",
             model=cfg["model"],
             temperature=cfg.get("temperature"),
+            top_p=cfg.get("topP"),
             max_tokens=cfg.get("maxTokens"),
             timeout=300,
             extra_body=extra,
-        ).bind_tools(tools_layer.TOOL_DEFS)
+        ).bind_tools(_all_bind_tools())
 
     # ---------------- 节点：prepare ----------------
     def prepare(state: ChatState) -> dict:
@@ -134,6 +234,11 @@ def build_graph(cfg):
         带心跳、限流重试、reasoning 转发、恢复层、工具调用判定。"""
         rounds = state.get("rounds", 0)
         msgs = list(state["messages"])
+        # 客户端已断开（前端点了停止）：不再发起新一轮上游请求，直接收尾退出
+        if (cfg.get("_stop") or {}).get("on"):
+            print("[断开] 客户端已停止，跳过本轮模型调用", flush=True)
+            return {"messages": msgs, "rounds": rounds,
+                    "final_text": "", "pending_tools": [], "streamed": True}
         # 轮数上限：不再带工具调模型，直接进入 finalize 的超轮收尾
         if rounds >= MAX_ROUNDS:
             return {"messages": msgs, "rounds": rounds,
@@ -152,12 +257,38 @@ def build_graph(cfg):
             t.start()
             return beat
 
-        # 恢复层保护缓冲：正文若以 ``` 或 { 开头（疑似漏发工具 JSON），先扣住不转发，
-        # 确认不是工具 JSON 再流出去 —— 打字机效果与恢复层洁净度兼得
-        held = {"buf": ""}
+        # 恢复层保护缓冲：正文“疑似工具调用 JSON”时先扣住不转发，确认不是再放行。
+        # 判定收窄为工具调用签名（```json{ / {"name"… 等），正常代码块与正文立即放行，
+        # 保住打字机效果（对齐 Qwen-Agent：结构化 tool_calls 为主，正文解析仅兜底）。
+        held = {"buf": "", "locked": False}
+
+        def _held_maybe_tooljson(buf: str) -> bool:
+            """held 缓冲是否仍“可能是工具调用 JSON”。True=继续扣住，False=立即放行。"""
+            s = buf.lstrip()
+            if s.startswith("```"):
+                s = s[3:].lstrip()
+                if s.startswith("json"):
+                    s = s[4:].lstrip()
+                elif "json".startswith(s):      # "j"/"js"/"jso" 仍可能是 ```json
+                    return True
+                elif not s.startswith("{"):
+                    return False                # ```python / ```js 等正常代码块
+            if not s:
+                return True
+            if not s.startswith("{"):
+                return False
+            rest = s[1:].lstrip()
+            if not rest:
+                return True
+            if not rest.startswith('"'):
+                return False
+            key = rest[1:]
+            return any(k.startswith(key) or key.startswith(k)
+                       for k in ("name", "tool", "function", "arguments"))
 
         def _flush(force=False):
-            if force or not re.match(r"\s*(```|\{)", held["buf"]):
+            if force or held["locked"] or not _held_maybe_tooljson(held["buf"]):
+                held["locked"] = True
                 if held["buf"]:
                     sse({"choices": [{"delta": {"content": held["buf"]}}]})
                     held["buf"] = ""
@@ -169,6 +300,12 @@ def build_graph(cfg):
             try:
                 print(f"[第{rounds + 1}轮] 流式请求模型中（LangGraph）…", flush=True)
                 for chunk in llm.stream(trim_history(msgs)):
+                    # 客户端已断开（前端点了停止）：立刻停止拉取上游，不再白跑完
+                    if (cfg.get("_stop") or {}).get("on"):
+                        print("[断开] 客户端已停止，中断本轮生成", flush=True)
+                        _flush(force=True)
+                        return {"messages": msgs, "rounds": rounds,
+                                "final_text": "", "pending_tools": [], "streamed": True}
                     # thinking 文字实时转发（glm/deepseek 推理模型）
                     try:
                         rc = (chunk.additional_kwargs or {}).get("reasoning_content") or ""
@@ -184,7 +321,6 @@ def build_graph(cfg):
                         held["buf"] += c
                         _flush()
                     assembled = chunk if assembled is None else assembled + chunk
-                _flush(force=True)
                 print(f"[第{rounds + 1}轮] 模型响应耗时 {time.time() - t0:.1f}s", flush=True)
                 break
             except urllib.error.HTTPError as e:
@@ -231,30 +367,24 @@ def build_graph(cfg):
             except Exception:
                 rec = None
             if rec:
+                held["buf"] = ""   # 确认是工具 JSON：丢弃原文，绝不让前端看到裸 JSON
                 rname, rargs, rclean = rec
                 tc = {"id": "rec-%d" % int(time.time() * 1000), "type": "function",
                       "function": {"name": rname, "arguments": json.dumps(rargs, ensure_ascii=False)}}
-                print(f"[恢复层] 模型漏发 tool_call，框架已补执行：{rname}({json.dumps(rargs)[:80]})", flush=True)
-                sse({"tool": {"id": tc["id"], "name": rname,
-                              "args": tc["function"]["arguments"], "status": "running"}})
-                try:
-                    rres = tools_layer.run_tool(tc, perm)
-                except Exception as e:
-                    rres = f"工具执行失败：{e}"
-                sse({"tool": {"id": tc["id"], "name": rname,
-                              "status": "done", "preview": str(rres)[:400]}})
-                # JSON 正文被 held 缓冲扣住了没流出去 → 清洗后的文字由 finalize 补流
+                print(f"[恢复层] 模型漏发 tool_call，框架补执行：{rname}({json.dumps(rargs)[:80]})", flush=True)
+                # 交给 exec_tools 执行（事件由 _run_one 统一发 running/done），执行后
+                # 自动回到 call_model，让模型基于工具结果继续作答（对齐 Qwen-Agent 循环）。
                 return {"messages": msgs + [
                             {"role": "assistant", "content": str(rclean).strip(), "tool_calls": [tc]},
-                            {"role": "tool", "tool_call_id": tc["id"],
-                             "content": str(rres)[:MAX_CHARS]},
                         ],
-                        "rounds": rounds + 1, "final_text": "", "streamed": False}
-            # 正常最终回答：token 已经实时流出，不再重复切片
+                        "rounds": rounds + 1, "final_text": "", "pending_tools": [tc]}
+            # 正常最终回答：先放行被扣住的缓冲（确认不是工具 JSON），token 已实时流出
+            _flush(force=True)
             return {"messages": msgs + [oai], "rounds": rounds + 1,
                     "final_text": str(final_text), "pending_tools": [], "streamed": True}
 
         # ---- 有 tool_calls：正文已实时流出，暂存工具调用交给 exec_tools ----
+        _flush(force=True)   # 工具调用前的序言文字照常放行
         return {"messages": msgs + [oai], "rounds": rounds + 1,
                 "pending_tools": oai.get("tool_calls") or [], "streamed": True}
 
@@ -272,11 +402,63 @@ def build_graph(cfg):
         """并发执行本轮全部 tool_calls（线程池），结果按原顺序回灌。"""
         tool_calls = state["pending_tools"]
         msgs = list(state["messages"])
+        # 工具执行期间可能几十秒没有任何 data 事件 → 定期发 SSE 注释心跳保活
+        # （防代理网关/手机 WebView 判定空闲断流；注释行前端解析器直接跳过）
+        ping_on = {"v": True}
+
+        def _pinger():
+            while ping_on["v"]:
+                time.sleep(15)
+                if not ping_on["v"]:
+                    break
+                try:
+                    ping = cfg.get("ping")
+                    if callable(ping):
+                        ping()
+                except Exception:
+                    pass
+
+        ping_thread = threading.Thread(target=_pinger, daemon=True)
+        ping_thread.start()
 
         def _run_one(tc):
             fn = tc.get("function") or {}
             t0 = time.time()
-            result = tools_layer.run_tool(tc, perm)
+            # ---- 人工审批（HITL）：approveTools 开启时，执行前先请示 ----
+            if cfg.get("approveTools") and callable(cfg.get("waitApproval")):
+                aid = str(tc.get("id") or "") or ("apr-%d" % int(time.time() * 1000))
+                sse({"approval_request": {"id": aid, "name": fn.get("name"),
+                                          "args": str(fn.get("arguments") or "")}})
+                approved = bool(cfg["waitApproval"](aid, 120))
+                if not approved:
+                    print(f"[审批] 用户拒绝/超时：{fn.get('name')}", flush=True)
+                    try:
+                        tools_layer.trace_event("approval", {"name": fn.get("name"),
+                                                             "approved": False})
+                    except Exception:
+                        pass
+                    sse({"tool": {"id": tc.get("id"), "name": fn.get("name"),
+                                  "args": str(fn.get("arguments") or ""),
+                                  "status": "denied"}})
+                    return tc, fn.get("name"), "用户拒绝执行该工具。"
+                try:
+                    tools_layer.trace_event("approval", {"name": fn.get("name"),
+                                                         "approved": True})
+                except Exception:
+                    pass
+            # 开始事件必须在执行前发出（对齐 LangGraph ToolNode 的 on_tool_start 语义）
+            sse({"tool": {"id": tc.get("id"), "name": fn.get("name"),
+                          "args": str(fn.get("arguments") or ""), "status": "running"}})
+            # ---- MCP adapter 工具直连执行；其余走 tools_layer（保留 perm/MCP 兜底） ----
+            try:
+                if fn.get("name") in _MCP_LC_BY_NAME:
+                    result = _invoke_mcp_lc_tool(fn.get("name"), fn.get("arguments") or "")
+                else:
+                    result = tools_layer.run_tool(tc, perm)
+            except Exception as e:      # 错误回填：不中断循环，让模型自行纠正
+                result = f"工具执行失败：{e}"
+            sse({"tool": {"id": tc.get("id"), "name": fn.get("name"),
+                          "status": "done", "preview": str(result)[:400]}})
             try:
                 brief = str(fn.get("arguments") or "")[:80]
                 print(f"[工具] {fn.get('name')}({brief}) 耗时 {time.time() - t0:.1f}s", flush=True)
@@ -297,13 +479,11 @@ def build_graph(cfg):
             pairs.sort(key=lambda p: order[id(p[0])])
         else:
             pairs = [_run_one(tool_calls[0])]
+        ping_on["v"] = False   # 工具全部执行完，停掉心跳线程
 
+        # 工具事件已由 _run_one 在执行前后发出（对齐 LangGraph ToolNode 的
+        # on_tool_start 语义），这里只回灌结果，避免重复/滞后事件
         for tc, name, result in pairs:
-            sse({"tool": {"id": tc.get("id"), "name": name,
-                          "args": (tc.get("function") or {}).get("arguments") or "",
-                          "status": "running"}})
-            sse({"tool": {"id": tc.get("id"), "name": name,
-                          "status": "done", "preview": str(result)[:400]}})
             msgs.append({"role": "tool", "tool_call_id": tc.get("id"),
                          "content": str(result)[:MAX_CHARS]})
         return {"messages": msgs, "pending_tools": []}
@@ -332,6 +512,10 @@ def build_graph(cfg):
         if not state.get("streamed"):
             for i in range(0, len(final_text), 24):
                 sse({"choices": [{"delta": {"content": final_text[i:i + 24]}}]})
+        # Follow-up 追问建议：可选开启，用同一模型（不带工具、temperature 0.8）
+        # 生成 3 条追问；解析失败静默跳过，绝不影响主回答。
+        if cfg.get("followups") and final_text.strip():
+            _gen_followups(cfg, final_text)
         try:
             tools_layer.trace_event("final", {"rounds": len(msgs), "answer_len": len(final_text)})
         except Exception:
@@ -368,7 +552,48 @@ def build_graph(cfg):
 #   from langgraph.checkpoint.redis import RedisSaver      # pip install langgraph-checkpoint-redis
 #   from langgraph.checkpoint.postgres import PostgresSaver # pip install langgraph-checkpoint-postgres
 from langgraph.checkpoint.memory import MemorySaver
-_CHECKPOINTER = MemorySaver()
+
+
+class BoundedMemorySaver(MemorySaver):
+    """带 thread 数量上限的 MemorySaver：LRU 淘汰最久未写入的会话。
+
+    背景：MemorySaver 的 storage/writes/blobs 是三个只增不减的容器
+    （见 langgraph/checkpoint/memory/__init__.py），长驻 8765 服务每聊一次
+    就多一份完整快照，内存会一直涨。官方提供了 delete_thread(thread_id)
+    一次性清理 storage/writes/blobs 三处（同文件 L514-530），这里在每次
+    put 后按 LRU 调它释放，语义与 RedisSaver/PostgresSaver 的过期淘汰一致。
+    """
+
+    def __init__(self, max_threads: int = 50):
+        super().__init__()
+        self._max_threads = max(1, int(max_threads))
+        self._touched: dict = {}      # thread_id -> 最近写入时间
+        self._evict_lock = threading.Lock()
+
+    def _touch_and_evict(self, thread_id: str) -> None:
+        with self._evict_lock:
+            self._touched[thread_id] = time.time()
+            if len(self._touched) <= self._max_threads:
+                return
+            stale = sorted(self._touched.items(), key=lambda kv: kv[1])
+            for tid, _ in stale[:len(self._touched) - self._max_threads]:
+                self._touched.pop(tid, None)
+                try:
+                    self.delete_thread(tid)
+                except Exception:
+                    pass
+
+    def put(self, config, checkpoint, metadata, new_versions):
+        try:
+            tid = config["configurable"]["thread_id"]
+            self._touch_and_evict(str(tid))
+        except Exception:
+            pass
+        return super().put(config, checkpoint, metadata, new_versions)
+
+
+# 上限 50 个会话（约覆盖最近 50 个聊天）；超出的最旧会话快照自动释放。
+_CHECKPOINTER = BoundedMemorySaver(max_threads=50)
 
 
 def _extract_memory_async(cfg, user_text, answer):
@@ -378,6 +603,36 @@ def _extract_memory_async(cfg, user_text, answer):
         _impl(cfg["base"], cfg["key"], cfg["model"], user_text, answer)
     except Exception:
         pass
+
+
+def _gen_followups(cfg, final_text):
+    """基于最终回答生成 3 条追问建议。失败静默。"""
+    try:
+        llm = ChatOpenAI(
+            base_url=cfg["base"], api_key=cfg["key"] or "EMPTY",
+            model=cfg["model"], temperature=0.8, timeout=60)
+        resp = llm.invoke([
+            {"role": "system", "content":
+                "基于刚才的回答，给用户推荐 3 条简短的追问，输出 JSON 数组，"
+                "每项 {\"title\",\"label\",\"prompt\"}，title≤10字，"
+                "prompt 为完整追问句子，只输出 JSON，不要输出任何其他文字。"},
+            {"role": "user", "content": str(final_text)[:4000]},
+        ])
+        text = resp.content if isinstance(resp.content, str) else str(resp.content)
+        m = re.search(r"\[[\s\S]*\]", text)
+        if not m:
+            return
+        data = json.loads(m.group(0))
+        if not isinstance(data, list):
+            return
+        out = [{"title": str(it.get("title") or "")[:12],
+                "label": str(it.get("label") or it.get("title") or "")[:20],
+                "prompt": str(it.get("prompt") or "")}
+               for it in data[:3] if isinstance(it, dict) and it.get("prompt")]
+        if out:
+            cfg["sse"]({"suggestions": out})
+    except Exception as e:
+        print(f"[followups] 生成失败，已跳过：{e}", flush=True)
 
 
 def run_chat(cfg, messages):
@@ -390,8 +645,12 @@ def run_chat(cfg, messages):
     """
     graph = build_graph(cfg)
     thread_id = str(cfg.get("threadId") or "default")
+    # 显式重置全部回合级字段：checkpointer 会把同 thread_id 上一轮的 state 带进来，
+    # 若只传 messages，rounds/streamed/final_text 会从旧快照继承（rounds 越滚越大，
+    # 几轮之后新请求一起步就撞 MAX_ROUNDS 上限）。历史仍由本次 messages 全量覆盖。
     final = graph.invoke(
-        {"messages": list(messages)},
+        {"messages": list(messages), "rounds": 0, "final_text": "",
+         "pending_tools": [], "utext": "", "streamed": False},
         config={
             "configurable": {"thread_id": thread_id},   # 断点续跑/恢复的会话标识
             "recursion_limit": (MAX_ROUNDS + 4) * 4,    # 防死循环兜底

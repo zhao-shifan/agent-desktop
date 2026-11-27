@@ -16,6 +16,7 @@ import urllib.request
 import fnmatch
 import concurrent.futures
 import threading
+import time
 import socket
 import ipaddress
 import time
@@ -48,12 +49,19 @@ def _http(url, data=None, headers=None, timeout=25):
     hdrs.update(headers or {})
     req = urllib.request.Request(url, data=data, headers=hdrs)
     kw = {"context": _SSL_CTX} if _SSL_CTX is not None else {}
-    try:
-        with urllib.request.urlopen(req, timeout=timeout, **kw) as r:
-            # 限制单次最多读 5MB，防止恶意页面超大响应占内存
-            raw, ctype = r.read(5 * 1024 * 1024), r.headers.get("Content-Type", "")
-    except Exception as e:
-        raise
+    last_err = None
+    for attempt in range(3):   # 网络瞬断/代理抖动重试（SSL EOF 等立即失败的错误）
+        try:
+            with urllib.request.urlopen(req, timeout=timeout, **kw) as r:
+                # 限制单次最多读 5MB，防止恶意页面超大响应占内存
+                raw, ctype = r.read(5 * 1024 * 1024), r.headers.get("Content-Type", "")
+            break
+        except Exception as e:
+            last_err = e
+            if attempt < 2:
+                time.sleep(0.6 * (attempt + 1))
+            else:
+                raise
     m = re.search(r"charset=([\w-]+)", ctype, re.I)
     charset = m.group(1) if m else "utf-8"
     try:
@@ -261,16 +269,71 @@ def get_location():
     return "IP 定位失败（网络不通或接口限流），可以让用户直接告诉你城市"
 
 
+# Open-Meteo 地理编码只按原名（多为英文/本地名）匹配，中文译名搜不到甚至错配
+# （实测「东京」会命中江苏的同名乡镇）。常见海外城市先翻译成英文名再查。
+_WORLD_CITY_ZH_EN = {
+    "纽约": "New York", "东京": "Tokyo", "伦敦": "London", "巴黎": "Paris",
+    "首尔": "Seoul", "釜山": "Busan", "莫斯科": "Moscow", "柏林": "Berlin",
+    "慕尼黑": "Munich", "罗马": "Rome", "米兰": "Milan", "马德里": "Madrid",
+    "巴塞罗那": "Barcelona", "阿姆斯特丹": "Amsterdam", "维也纳": "Vienna",
+    "苏黎世": "Zurich", "多伦多": "Toronto", "温哥华": "Vancouver",
+    "洛杉矶": "Los Angeles", "旧金山": "San Francisco", "纽约州": "New York",
+    "芝加哥": "Chicago", "西雅图": "Seattle", "波士顿": "Boston",
+    "拉斯维加斯": "Las Vegas", "悉尼": "Sydney", "墨尔本": "Melbourne",
+    "奥克兰": "Auckland", "新加坡": "Singapore", "曼谷": "Bangkok",
+    "吉隆坡": "Kuala Lumpur", "曼彻斯特": "Manchester", "迪拜": "Dubai",
+    "开罗": "Cairo", "东京都": "Tokyo", "首尔特别市": "Seoul",
+}
+
+
 def _geocode(city):
-    """城市名 → 经纬度，Open-Meteo 地理编码（免 Key）。"""
-    url = "https://geocoding-api.open-meteo.com/v1/search?count=1&language=zh&format=json&name=" + \
-          urllib.parse.quote(city)
-    data = json.loads(_http(url))
-    results = data.get("results") or []
-    if not results:
-        return None
-    r = results[0]
-    return r.get("name"), r.get("latitude"), r.get("longitude"), r.get("country")
+    """城市名 → 经纬度，Open-Meteo 地理编码（免 Key）。
+
+    Open-Meteo geocoding 对复合地名（如「北京昌平」）搜不到、对海外城市中文名
+    匹配不到，所以依次尝试：译名表 → 原名 → 去掉省/市前缀的剩余部分 → 分隔符拆段。
+    """
+    def _query(name):
+        url = "https://geocoding-api.open-meteo.com/v1/search?count=1&language=zh&format=json&name=" + \
+              urllib.parse.quote(name)
+        data = json.loads(_http(url))
+        results = data.get("results") or []
+        if not results:
+            return None
+        r = results[0]
+        return r.get("name"), r.get("latitude"), r.get("longitude"), r.get("country")
+
+    # 先查译名表（整串命中优先，如「纽约」；也允许「美国纽约」这类带前缀的写法）
+    en = _WORLD_CITY_ZH_EN.get(city)
+    if not en:
+        for zh, e in _WORLD_CITY_ZH_EN.items():
+            if city.endswith(zh):
+                en = e
+                break
+    if en:
+        g = _query(en)
+        if g:
+            return g
+
+    g = _query(city)
+    if g:
+        return g
+    # 复合地名回退：先按常见分隔符拆段，再尝试去掉开头的行政区前缀（2~3 字）
+    candidates = []
+    for seg in re.split(r"[市省自治区\s·]+", city):
+        seg = seg.strip()
+        if seg and seg not in candidates:
+            candidates.append(seg)
+    for n in (2, 3):
+        if len(city) > n and city[n:] and city[n:] not in candidates:
+            candidates.append(city[n:])
+    for cand in candidates:
+        try:
+            g = _query(cand)
+        except Exception:
+            g = None
+        if g:
+            return g
+    return None
 
 
 _WEATHER_CODES = {
@@ -288,7 +351,9 @@ def get_weather(city="", days=3):
     if city:
         g = _geocode(city)
         if not g:
-            return "找不到城市：%s" % city
+            return ("找不到城市：%s（地理编码接口没有命中该地名，可能写法太特殊）。"
+                    "请把真实情况告诉用户，可以请他换个写法（如「昌平」「北京市昌平区」）；"
+                    "绝对禁止自己编造温度或天气数据。" % city)
         place, lat, lon, country = g
         place = "%s（%s）" % (place, country or "")
     else:
@@ -534,6 +599,93 @@ def search_notes(query):
     return "\n".join(out)
 
 
+def _memory_path():
+    return os.path.join(APP_ROOT, "agent_data", "memory.json")
+
+
+_MEMORY_LOCK = threading.Lock()
+
+
+def save_memory_facts(facts):
+    """mem0 同用途：把自动抽取的用户事实合并进记忆库（去重，命中旧条目则刷新时间）。
+    与 save_note（用户手动记）分开存，互不污染。"""
+    import datetime as _dt
+    now = _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+    added, updated = 0, 0
+    with _MEMORY_LOCK:
+        try:
+            with open(_memory_path(), "rb") as f:
+                mem = json.loads(f.read().decode("utf-8"))
+        except Exception:
+            mem = []
+        for raw in facts or []:
+            fact = re.sub(r"\s+", " ", str(raw or "")).strip()[:120]
+            if len(fact) < 4:
+                continue
+            hit = None
+            for m in mem:
+                a, b = fact.lower(), str(m.get("fact", "")).lower()
+                # 去重：完全相同，或一方包含另一方（mem0 的 UPDATE/NOOP 判定的轻量版）
+                if a == b or (len(a) >= len(b) and b in a) or (len(b) > len(a) and a in b):
+                    hit = m
+                    break
+            if hit:
+                hit["time"] = now
+                updated += 1
+            else:
+                mem.insert(0, {"fact": fact, "time": now, "hits": 0})
+                added += 1
+        os.makedirs(os.path.dirname(_memory_path()), exist_ok=True)
+        with open(_memory_path(), "w", encoding="utf-8") as f:
+            json.dump(mem[:300], f, ensure_ascii=False, indent=1)   # 上限 300 条
+    return "记忆库：新增 %d 条，刷新 %d 条（共 %d 条）" % (added, updated, min(len(mem), 300))
+
+
+def retrieve_memory(query, top=3):
+    """按当前提问检索相关记忆事实，返回字符串列表（供 server 注入 system）。"""
+    q = str(query or "").strip()
+    try:
+        with open(_memory_path(), "rb") as f:
+            mem = json.loads(f.read().decode("utf-8"))
+    except Exception:
+        return []
+    if not mem or not q:
+        return []
+    terms = [t for t in re.split(r"[\s,，。;；|？?]+", q) if len(t) >= 2]
+    if not terms:
+        return []
+
+    def _bigrams(s):
+        return {s[i:i + 2] for i in range(len(s) - 1)} if len(s) > 1 else {s}
+
+    q_bi = set()
+    for t in terms:
+        q_bi |= _bigrams(t)
+    scored = []
+    for m in mem:
+        fact = str(m.get("fact", ""))
+        score = sum(3 for t in terms if t in fact)          # 整词命中：高分
+        if not score:
+            bi = _bigrams(fact)
+            ov = len(q_bi & bi)
+            if ov and ov / len(q_bi) >= 0.2:               # bigram 重叠占比：中文模糊匹配
+                score = ov * 0.5
+        if score > 0:
+            scored.append((score + m.get("hits", 0) * 0.1, m))
+    scored.sort(key=lambda x: -x[0])
+    picked = [m for _, m in scored[:max(1, min(int(top or 3), 5))]]
+    with _MEMORY_LOCK:   # 命中计数（越常被用到的记忆权重越高，mem0 的 relevance 思路）
+        for m in mem:
+            if m in picked:
+                m["hits"] = m.get("hits", 0) + 1
+        try:
+            with open(_memory_path(), "w", encoding="utf-8") as f:
+                json.dump(mem, f, ensure_ascii=False, indent=1)
+        except Exception:
+            pass
+    return [str(m.get("fact")) for m in picked]
+
+
 def _is_private_host(host):
     """判断主机名是否指向内网/环回地址，防 SSRF（fetch_url 不允许打内网）。"""
     host = (host or "").strip().lower().strip("[]")
@@ -645,6 +797,106 @@ def list_dir(path=".", work_dir=""):
     return full + "\n" + "\n".join(items)
 
 
+# ---------- Cline 式 checkpoint：AI 改文件前自动快照，随时可回滚 ----------
+# 参考 Cline 的 checkpoint 机制：每步写落地前存工作区快照，出问题一键回滚。
+# 零依赖实现：原文件复制到 agent_data/checkpoints/ + index.jsonl 登记。
+
+# ---------- OpenHands 式事件流 trace：每轮调用/工具执行都落 JSONL，可回放排查 ----------
+# OpenHands 的 EventStream 思路：每一步（Action/Observation）都是一条事件，追加进流。
+
+def trace_event(kind, data):
+    """追加一条事件到 agent_data/traces/YYYY-MM-DD.jsonl。任何失败静默（trace 不能影响主流程）。"""
+    try:
+        import datetime as _dt
+        d = os.path.join(APP_ROOT, "agent_data", "traces")
+        os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, time.strftime("%Y-%m-%d") + ".jsonl")
+        rec = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "kind": kind}
+        rec.update(data or {})
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _checkpoint_dir():
+    return os.path.join(APP_ROOT, "agent_data", "checkpoints")
+
+
+def _snapshot_file(full):
+    """改前快照：把原文件复制到 checkpoints/ 并登记 index.jsonl，返回备份名（失败返回空串，不阻塞写入）。"""
+    try:
+        cp = _checkpoint_dir()
+        os.makedirs(cp, exist_ok=True)
+        # 毫秒级时间戳 + 撞名递增：同一秒内多次改动也不能互相覆盖（踩过的坑）
+        ms = int(time.time() * 1000) % 1000
+        ts = "%s_%03d" % (time.strftime("%Y%m%d_%H%M%S"), ms)
+        safe = re.sub(r"[^A-Za-z0-9._\-]", "_", os.path.basename(full))[-60:] or "file"
+        bak = "%s_%s" % (ts, safe)
+        n = 1
+        while os.path.exists(os.path.join(cp, bak)):
+            bak = "%s_%s_%d" % (ts, safe, n)
+            n += 1
+        with open(full, "rb") as src, open(os.path.join(cp, bak), "wb") as dst:
+            dst.write(src.read())
+        with open(os.path.join(cp, "index.jsonl"), "a", encoding="utf-8") as idx:
+            idx.write(json.dumps({"time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                                  "file": os.path.abspath(full), "backup": bak},
+                                 ensure_ascii=False) + "\n")
+        return bak
+    except Exception:
+        return ""
+
+
+def list_checkpoints(limit=15):
+    """列出最近的文件改动记录（谁在什么时候改了哪个文件、备份名是什么）。"""
+    idx = os.path.join(_checkpoint_dir(), "index.jsonl")
+    if not os.path.isfile(idx):
+        return "还没有 checkpoint 记录（AI 用 write_file/edit_file 改过已有文件后才有）"
+    with open(idx, encoding="utf-8") as f:
+        lines = [l for l in f.read().splitlines() if l.strip()]
+    limit = max(1, min(int(limit or 15), 50))
+    out = []
+    for l in lines[-limit:]:
+        try:
+            d = json.loads(l)
+            out.append("%s  改了 %s  （备份名：%s）" % (d.get("time", "?"), d.get("file", "?"), d.get("backup", "?")))
+        except Exception:
+            continue
+    if not out:
+        return "checkpoint 记录为空"
+    return "最近的文件改动（时间倒序显示，最后一条是最早的）：\n" + "\n".join(reversed(out))
+
+
+def restore_checkpoint(backup):
+    """按备份名把文件回滚到改动前（Cline 的 restore 同用途）。"""
+    name = os.path.basename(str(backup or "").strip())
+    if not name:
+        return "请给 backup 参数（先调 list_checkpoints 查看备份名）"
+    cp = _checkpoint_dir()
+    bak_full = os.path.join(cp, name)
+    if not os.path.isfile(bak_full):
+        return "找不到备份 %s（先 list_checkpoints 查看列表，注意备份名要完整）" % name
+    target = None
+    idx = os.path.join(cp, "index.jsonl")
+    if os.path.isfile(idx):
+        with open(idx, encoding="utf-8") as f:
+            for l in f.read().splitlines():
+                try:
+                    d = json.loads(l)
+                    if d.get("backup") == name:
+                        target = d.get("file")
+                except Exception:
+                    continue
+    if not target:
+        return "备份存在但没有登记原始路径（记录损坏），无法自动回滚；可手动复制 %s" % bak_full
+    # 回滚前也快照一次当前状态（回滚本身也可撤销，Cline 同款思路）
+    _snapshot_file(target)
+    with open(bak_full, "rb") as s, open(target, "wb") as t:
+        t.write(s.read())
+    return "已回滚 %s ← 备份 %s（回滚前的状态也已存了一份新快照，撤销回滚可再 restore）" % (target, name)
+
+
 def write_file(path, content, work_dir=""):
     """新建或整体覆盖一个文本文件（参考 smolagents save_file：先校验边界再写）。"""
     full = _check_path(path, work_dir)
@@ -656,10 +908,13 @@ def write_file(path, content, work_dir=""):
     else:
         old = ""
     os.makedirs(os.path.dirname(full) or ".", exist_ok=True)
+    bak = _snapshot_file(full) if existed else ""   # 覆盖已有文件前先快照（Cline checkpoint）
     with open(full, "w", encoding="utf-8", newline="\n") as f:
         f.write(content)
     if existed:
-        return "已覆盖 %s（原 %d 字符 → 新 %d 字符）" % (full, len(old), len(content))
+        return "已覆盖 %s（原 %d 字符 → 新 %d 字符）%s" % (
+            full, len(old), len(content),
+            ("；改前备份：%s（用户不满意可调 restore_checkpoint 回滚）" % bak) if bak else "")
     return "已创建 %s（%d 字符）" % (full, len(content))
 
 
@@ -690,9 +945,12 @@ def edit_file(path, old_string, new_string, work_dir="", replace_all=False):
     if n > 1 and not replace_all:
         return "old_string 出现了 %d 次，为避免误改请扩大上下文使其唯一，或确认后用 replace_all=true" % n
     new_text = text.replace(old_string, new_string, n if (replace_all and n > 1) else 1)
+    bak = _snapshot_file(full)   # 编辑前先快照（Cline checkpoint）
     with open(full, "w", encoding=enc, newline="") as f:
         f.write(new_text)
-    return "已编辑 %s：%d 处替换（%d → %d 字符）" % (full, n if (replace_all and n > 1) else 1, len(text), len(new_text))
+    return "已编辑 %s：%d 处替换（%d → %d 字符）%s" % (
+        full, n if (replace_all and n > 1) else 1, len(text), len(new_text),
+        ("；改前备份：%s（用户不满意可调 restore_checkpoint 回滚）" % bak) if bak else "")
 
 
 def grep(pattern, path=".", work_dir="", max_results=30):
@@ -859,6 +1117,17 @@ TOOL_DEFS = [
         "parameters": {"type": "object", "properties": {
             "command": {"type": "string"}}, "required": ["command"]}}},
     {"type": "function", "function": {
+        "name": "list_checkpoints",
+        "description": "列出 AI 最近改过的文件记录（Cline checkpoint 同用途）。用户说'改坏了吗/刚才改了什么/想撤销'时先调它看备份名。",
+        "parameters": {"type": "object", "properties": {
+            "limit": {"type": "integer", "description": "最多返回条数，默认 15"}}}}},
+    {"type": "function", "function": {
+        "name": "restore_checkpoint",
+        "description": "把文件回滚到改动前的备份版本（用户说'改坏了/撤销/恢复原来的'时用）。backup 参数来自 list_checkpoints 的备份名。",
+        "parameters": {"type": "object", "properties": {
+            "backup": {"type": "string", "description": "备份文件名，来自 list_checkpoints"}},
+            "required": ["backup"]}}},
+    {"type": "function", "function": {
         "name": "get_time",
         "description": "获取当前本地时间、星期、时间戳。用户问'现在几点/今天星期几'或需要时间基准时使用（无需联网）。",
         "parameters": {"type": "object", "properties": {}}}},
@@ -956,6 +1225,10 @@ def run_tool(call, perm=None):
             if not perm.get("allowCommand"):
                 return "被拒绝：用户没有开启命令执行权限，请让用户到设置里打开「允许执行命令」。"
             return run_command(args.get("command", ""), work_dir)
+        if name == "list_checkpoints":
+            return list_checkpoints(args.get("limit", 15))
+        if name == "restore_checkpoint":
+            return restore_checkpoint(args.get("backup", ""))
         if name == "get_time":
             return get_time()
         if name == "calculator":

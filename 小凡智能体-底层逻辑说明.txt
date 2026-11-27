@@ -286,6 +286,27 @@
                     测试：tests/_test_intent_rules.mjs（35 项断言全过）
                        + tests/_test_tool_loop.py 端到端通过
                     缓存：sw.js VERSION → xfan-v10（手机要强刷一次）
+  v1.11 2026-11-25  参考成熟开源项目的三个外围机制（架构不变，仍是单循环）：
+                    1) Cline 式可回滚写操作（tools_layer.py）
+                       write_file/edit_file 覆盖已有文件前自动快照到
+                       agent_data/checkpoints/（毫秒级时间戳+撞名递增，
+                       同一秒多次改动不互相覆盖——实测踩过），并登记
+                       index.jsonl；新增工具 list_checkpoints /
+                       restore_checkpoint，回滚前也快照（撤销回滚可再滚）
+                    2) mem0 式自动长期记忆（tools_layer + server）
+                       server.py _extract_memory_async：答案完整后后台
+                       一次便宜调用抽「用户事实」（寒暄不抽），去重合并
+                       进 agent_data/memory.json（包含关系去重，mem0 的
+                       UPDATE/NOOP 轻量版）；每轮请求前 retrieve_memory
+                       按 bigram 重叠打分检索 top-3 注入 system
+                       【长期记忆】。与 /rule 和 save_note 互不污染
+                    3) OpenHands 式事件流 trace（server + tools_layer）
+                       每轮 user/llm/tool/llm_error/final 事件追加进
+                       agent_data/traces/YYYY-MM-DD.jsonl，回复异常时
+                       可回放定位到具体轮次
+                    验证：临时端口起新代码服务 + 端到端测试通过，trace
+                    五类事件齐全；记忆去重/检索、checkpoint 回滚单测通过
+                    （注意：8765 常驻服务要重启才会加载新代码）
 
 ================================================================
 目录结构（v1.7 归类后）

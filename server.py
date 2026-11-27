@@ -81,6 +81,23 @@ except Exception:
 # 让 pip --user 与工作区 libs 里的包都可被找到
 sys.path.insert(0, os.path.join(ROOT, "server", "libs"))
 
+# ---------- 工具人工审批（HITL）中心 ----------
+# ThreadingHTTPServer 每请求一线程：对话线程阻塞等审批，/api/approval 线程放行。
+pending_approvals = {}   # id -> {"event": threading.Event, "approved": None|bool}
+
+APPROVAL_TIMEOUT = 120   # 秒；超时视为拒绝，保证 SSE 流不会永久挂死
+
+
+def wait_approval(approval_id, timeout=APPROVAL_TIMEOUT):
+    """阻塞等待审批结果；返回 bool（超时视为拒绝）。"""
+    ev = threading.Event()
+    pending_approvals[str(approval_id)] = {"event": ev, "approved": None}
+    ok = ev.wait(max(1, int(timeout)))
+    rec = pending_approvals.pop(str(approval_id), None)
+    if not ok:
+        return False          # 超时 → 拒绝
+    return bool(rec and rec["approved"])
+
 
 def extract_text(name: str, data: bytes) -> str:
     """按扩展名抽取文件文本内容。"""
@@ -342,6 +359,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.handle_xlsx()
             elif self.path == "/api/mcp":
                 self.handle_mcp_save()
+            elif self.path == "/api/approval":
+                self.handle_approval()
             else:
                 self._send_json({"error": "not found"}, 404)
         except (BrokenPipeError, ConnectionResetError):
@@ -361,8 +380,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "servers 必须是数组（最多 20 个）"}, 400)
             return
         for s in servers:
-            if not isinstance(s, dict) or not s.get("name") or not s.get("command"):
-                self._send_json({"error": "每项必须有 name 和 command"}, 400)
+            # 兼容两类服务器：stdio（command/args）与 http/sse（url）
+            if not isinstance(s, dict) or not s.get("name") \
+                    or not (s.get("command") or s.get("url")):
+                self._send_json({"error": "每项必须有 name，且带 command（stdio）或 url（http/sse）"}, 400)
                 return
         os.makedirs(os.path.join(ROOT, "agent_data"), exist_ok=True)
         with open(tools_layer._mcp_config_path(), "w", encoding="utf-8") as f:
@@ -374,10 +395,28 @@ class Handler(BaseHTTPRequestHandler):
         base = [t for t in tools_layer.TOOL_DEFS
                 if not t["function"]["name"].startswith("mcp_")]
         tools_layer.TOOL_DEFS[:] = base + tools_layer.mcp_tool_defs()
+        # langchain-mcp-adapters 的工具缓存也一并失效，下次对话重新加载
+        try:
+            import agent_graph
+            agent_graph.mcp_lc_reset()
+        except Exception:
+            pass
         self._send_json({"ok": True,
                          "mounted": mounted,
                          "lifecycle": tools_layer.mcp_lifecycle(),
                          "total": sum(len(v) for v in mounted.values())})
+
+    def handle_approval(self):
+        """POST /api/approval：{"id","approved"} → 放行/拒绝等待中的工具审批。"""
+        payload = self._json_body()
+        aid = str(payload.get("id") or "")
+        rec = pending_approvals.get(aid)
+        if rec is None:
+            self._send_json({"error": "审批请求不存在或已超时"}, 404)
+            return
+        rec["approved"] = bool(payload.get("approved"))
+        rec["event"].set()
+        self._send_json({"ok": True, "id": aid, "approved": rec["approved"]})
 
     def _find_browser(self):
         """找本机 Edge/Chrome：Windows 绝佳的零依赖 PDF 排版引擎（headless print-to-pdf）。"""
@@ -735,6 +774,8 @@ class Handler(BaseHTTPRequestHandler):
         "【报错如实】工具调用失败时，把真实报错原文转述给用户；禁止编造「关键词敏感」「内容违规」等没有依据的理由。\n"
         "【工具使用规则】\n"
         "1) 用户问天气 → 必须调用 get_weather（没说城市先调 get_location），绝不要回复\"无法提供实时天气\"——你有天气工具！\n"
+        "1.5) 【天气防编造】get_weather 返回「找不到城市」或任何失败时，只能如实告诉用户查不到并请他换个城市写法，"
+        "绝不允许自己编造任何温度/天气数字；给用户的气温必须逐字来自工具返回，禁止凭记忆估计。\n"
         "2) 问当前时间/日期 → 必须调用 get_time；数学计算 → 必须调用 calculator，不要心算。\n"
         "3) 涉及新闻/版本/价格等实时信息 → 调用 web_search。\n"
         "3.5) 【防编造】听到具体人名、网名、公司、产品、作品、组织、地点等专有名词，只要不是百分百确定的事实 → "
@@ -752,6 +793,12 @@ class Handler(BaseHTTPRequestHandler):
         base = (payload.get("baseUrl") or "").rstrip("/")
         key = payload.get("apiKey") or ""
         model = payload.get("model") or ""
+        # 前端未携带上游配置（服务端托管模式）：回落到 agent_data/model_config.json
+        if not base:
+            up = self._load_upstream_cfg()
+            base = up["base"]
+            key = key or up["key"]
+            model = model or up["model"]
         temperature = payload.get("temperature")
         messages = payload.get("messages") or []
 
@@ -780,8 +827,24 @@ class Handler(BaseHTTPRequestHandler):
                    for m in messages):
             messages.insert(0, {"role": "system", "content": self.PERSONA_RULES})
 
+        # 用户自定义 systemPrompt：非空时追加在人设之后（不替换人设）
+        system_prompt = str(payload.get("systemPrompt") or "").strip()
+        if system_prompt:
+            for m in messages:
+                if m.get("role") == "system" and "【你是谁】" in (m.get("content") or ""):
+                    m["content"] = (m.get("content") or "") + \
+                        "\n\n【用户自定义指令·优先遵守其中明确要求】\n" + system_prompt[:4000]
+                    break
+
         tools_on = bool(payload.get("tools"))
         perm = payload.get("perm") or {}
+        # top_p 采样参数（0-1，可选；与 temperature 同层级透传给上游/ChatOpenAI）
+        top_p = payload.get("topP")
+        if top_p is not None:
+            try:
+                top_p = min(1.0, max(0.0, float(top_p)))
+            except (TypeError, ValueError):
+                top_p = None
 
         def build_body(msgs, stream_flag, with_tools):
             body = {
@@ -791,6 +854,8 @@ class Handler(BaseHTTPRequestHandler):
             }
             if temperature is not None:
                 body["temperature"] = float(temperature)
+            if top_p is not None:
+                body["top_p"] = top_p
             if payload.get("maxTokens"):
                 body["max_tokens"] = int(payload["maxTokens"])
             # 推理深度：智谱用 thinking，其他 OpenAI 兼容用 reasoning_effort
@@ -807,11 +872,19 @@ class Handler(BaseHTTPRequestHandler):
 
         # ---------- 带工具：LangGraph 对话图（agent_graph.py） ----------
         if tools_on:
+            approve_on = bool(payload.get("approveTools"))
             cfg = {"base": base, "key": key, "model": model,
                    "temperature": temperature,
+                   "topP": top_p,
+                   "systemPrompt": system_prompt,
                    "maxTokens": payload.get("maxTokens"),
                    "reasoning": payload.get("reasoning") or "auto",
                    "perm": perm, "sse": self._sse,
+                   # 工具人工审批（HITL）：对话线程阻塞等 /api/approval 放行
+                   "approveTools": approve_on,
+                   "waitApproval": wait_approval if approve_on else None,
+                   # Follow-up 追问建议（后端下发）
+                   "followups": bool(payload.get("followups")),
                    # 断点续跑/检查点的会话标识：前端传 sessionId 则按会话隔离
                    "threadId": payload.get("sessionId") or "default"}
             self._chat_with_tools(cfg, messages)
@@ -843,6 +916,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "close")
+        self.send_header("X-Accel-Buffering", "no")   # nginx/CDN 不要缓冲（sse-starlette 同款）
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
 
@@ -879,6 +953,15 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n")
             self.wfile.flush()
 
+    def _sse_ping(self):
+        """发 SSE 注释行心跳（工具执行/长思考期间无 data 时保活）。
+        注释行前端解析器会跳过（index.html 只认 data: 前缀），不产生 UI 副作用。
+        参考 sse-starlette 默认 ping=15s 的 ServerSentEvent(comment=...) 做法。"""
+        chunk = b": ping\n\n"
+        with self._sse_lock:
+            self.wfile.write(f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n")
+            self.wfile.flush()
+
     def _chat_with_tools(self, cfg, messages):
         """LangGraph 版对话图（v2.0）：prepare → call_model ⇄ exec_tools → finalize。
         原手写 function-calling 循环已整体迁移到 agent_graph.py，本方法只负责
@@ -890,8 +973,32 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "close")
+        self.send_header("X-Accel-Buffering", "no")   # nginx/CDN 不要缓冲（sse-starlette 同款）
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
+        # 客户端断开后停止后续生成（对齐 sse-starlette 的 is_disconnected 语义）：
+        # 前端点「停止」→ fetch abort → 写 socket 抛 BrokenPipe/OSError → 置位 → 图内提前退出
+        stop = {"on": False}
+
+        def sse_guarded(obj):
+            if stop["on"]:
+                return
+            try:
+                self._sse(obj)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                stop["on"] = True
+
+        def ping_guarded():
+            if stop["on"]:
+                return
+            try:
+                self._sse_ping()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                stop["on"] = True
+
+        cfg["sse"] = sse_guarded
+        cfg["ping"] = ping_guarded
+        cfg["_stop"] = stop
         try:
             agent_graph.run_chat(cfg, messages)
         except urllib.error.HTTPError as e:
@@ -900,20 +1007,24 @@ class Handler(BaseHTTPRequestHandler):
             if e.code in (400, 404, 422):
                 hint = "\n\n（当前模型/平台可能不支持工具调用，换 glm-4-flash、deepseek-chat 等支持 function calling 的模型试试）"
             tools_layer.trace_event("llm_error", {"code": e.code})
-            self._sse({"choices": [{"delta": {"content": f"上游接口返回 {e.code}: {detail}{hint}"}}]})
+            sse_guarded({"choices": [{"delta": {"content": f"上游接口返回 {e.code}: {detail}{hint}"}}]})
         except (BrokenPipeError, ConnectionResetError):
             return
         except ImportError as e:
             import traceback
             traceback.print_exc()
-            self._sse({"choices": [{"delta": {"content": f"缺少依赖：{e}"}}]})
-        except Exception:
+            sse_guarded({"choices": [{"delta": {"content": f"缺少依赖：{e}"}}]})
+        except Exception as e:
             import traceback
             traceback.print_exc()
-            try:
-                self._sse({"choices": [{"delta": {"content": "服务端处理出错，请查看终端日志。"}}]})
-            except Exception:
-                pass
+            msg = f"{type(e).__name__}: {str(e)[:180]}"
+            low = msg.lower()
+            if any(k in low for k in ("connection", "connect", "refused", "getaddrinfo", "timeout", "ssl")):
+                hint = ("\n\n👉 上游模型连不上：请检查「模型接入设置」里的 API 地址与 Key，"
+                        "或服务端 agent_data/model_config.json 的上游配置。")
+            else:
+                hint = "\n\n（详细堆栈见服务端终端日志）"
+            sse_guarded({"choices": [{"delta": {"content": f"服务端处理出错：{msg}{hint}"}}]})
         finally:
             try:
                 self.wfile.write(b"0\r\n\r\n")
@@ -976,6 +1087,7 @@ class Handler(BaseHTTPRequestHandler):
 
         cfg = {"base": up["base"], "key": up["key"], "model": up["model"] or model_name,
                "temperature": payload.get("temperature"),
+               "topP": payload.get("top_p"),
                "perm": {"allowCommand": False}, "threadId": thread_id,
                "reasoning": "auto"}
 
@@ -1021,6 +1133,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "close")
+            self.send_header("X-Accel-Buffering", "no")   # nginx/CDN 不要缓冲
             self.send_header("Transfer-Encoding", "chunked")
             self.end_headers()
             cfg["sse"] = graph_sse
