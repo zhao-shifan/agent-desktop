@@ -1,0 +1,13 @@
+
+minimumReleaseAgeExclude:
+  - dockview-core@8.10.0
+  - dockview-react@8.10.0
+  - dockview@8.10.0
+  - ooxml-core@2.1.2
+  - ooxml-ui@2.1.2
+  - pptx-react-viewer@5.1.2
+  - react-resizable-panels@4.24.3
+
+allowBuilds:
+  core-js: true
+  esbuild: true

@@ -1,0 +1,257 @@
+/* ============================================================
+   Dockview：只保留它的布局/拖拽结构，外观全部由工作台接管。
+   不加载任何 dockview-* 内置主题类，使用自定义 .wb-dv-theme。
+   ============================================================ */
+
+.wb-dv-theme {
+  --dv-paneview-active-outline-color: var(--wb-accent);
+  --dv-tabs-and-actions-container-font-size: 12px;
+  --dv-tabs-and-actions-container-height: 38px;
+  --dv-drag-over-background-color: var(--wb-accent-dim);
+  --dv-drag-over-border-color: var(--wb-accent);
+  --dv-edge-dock-indicator-color: var(--wb-accent);
+  --dv-edge-drop-strip-size: 8px;
+  --dv-tabs-container-scrollbar-color: var(--wb-line-strong);
+  --dv-icon-hover-background-color: var(--wb-accent-dim);
+  --dv-floating-box-shadow: 0 18px 54px rgba(0, 0, 0, 0.55);
+  --dv-floating-border: 1px solid var(--wb-line-strong);
+  --dv-overlay-z-index: 999;
+  --dv-tab-font-size: 12px;
+  --dv-border-radius: 8px;
+  --dv-tab-margin: 0;
+  --dv-sash-color: transparent;
+  --dv-active-sash-color: var(--wb-accent-line);
+  --dv-active-sash-transition-duration: 0.12s;
+  --dv-active-sash-transition-delay: 0s;
+  --dv-spacing-padding: 0px;
+  --dv-tab-border-radius: 8px;
+  --dv-sash-border-radius: 0px;
+  --dv-dropdown-border-radius: 8px;
+  --dv-tab-close-icon-size: 12px;
+  --dv-floating-group-border: 1px solid var(--wb-line-strong);
+  --dv-drag-over-border: 1px solid var(--wb-accent);
+  --dv-floating-group-dragging-opacity: 0.5;
+  --dv-floating-titlebar-height: 24px;
+  --dv-floating-titlebar-background-color: var(--wb-solid-2);
+  --dv-floating-titlebar-border-bottom: 1px solid var(--wb-line);
+  --dv-tab-group-color-grey: #676359;
+  --dv-tab-group-color-blue: #7fa8e8;
+  --dv-tab-group-color-red: #e07a6a;
+  --dv-tab-group-color-yellow: var(--wb-accent);
+  --dv-tab-group-color-green: #8fc99a;
+  --dv-tab-group-color-pink: #e28ab3;
+  --dv-tab-group-color-purple: #b49bea;
+  --dv-tab-group-color-cyan: #7bc8c0;
+  --dv-tab-group-color-orange: #e0a06a;
+  --dv-tab-group-chip-padding: 4px 8px;
+  --dv-tab-group-chip-border-radius: 6px;
+  --dv-tab-group-chip-font-size: 10px;
+  --dv-tab-group-line-height: 2px;
+  --dv-tab-group-line-opacity: 0.6;
+
+  color-scheme: dark;
+  --dv-group-view-background-color: var(--wb-panel-bg);
+  --dv-tabs-and-actions-container-background-color: var(--wb-panel-head-bg);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--wb-panel-bg);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--wb-bg-3);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--wb-panel-head-bg);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--wb-panel-bg);
+  --dv-tab-divider-color: transparent;
+  --dv-activegroup-visiblepanel-tab-color: var(--wb-text);
+  --dv-activegroup-hiddenpanel-tab-color: var(--wb-dim);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--wb-dim);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--wb-faint);
+  --dv-separator-border: var(--wb-line);
+  --dv-paneview-header-border-color: var(--wb-line);
+  --dv-context-menu-background-color: var(--wb-modal-bg);
+  --dv-context-menu-color: var(--wb-text);
+  --dv-context-menu-border-color: var(--wb-line-strong);
+  --dv-context-menu-hover-background-color: var(--wb-accent-dim);
+  --dv-tab-group-indicator-color: var(--wb-accent);
+}
+
+.wb-dv-theme.dv-dockview,
+.wb-dv-theme .dv-dockview {
+  background-color: var(--wb-panel-bg);
+}
+
+.wb-dv-theme .dv-groupview {
+  background-color: var(--wb-panel-bg);
+}
+
+.wb-dv-theme .dv-groupview > .dv-content-container {
+  background-color: var(--wb-panel-bg);
+}
+
+.wb-dv-theme .dv-tabs-and-actions-container {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.024), transparent),
+    var(--wb-panel-head-bg);
+  border-bottom: 1px solid var(--wb-line);
+  padding-left: 3px;
+  padding-right: 2px;
+}
+
+.wb-dv-theme .dv-tabs-container {
+  gap: 2px;
+}
+
+.wb-dv-theme .dv-tabs-container.dv-horizontal .dv-tab:not(:first-child)::before {
+  background: transparent;
+}
+
+.wb-dv-theme .dv-tab {
+  display: flex;
+  align-items: stretch;
+  padding: 0;
+  margin: 5px 0 0;
+  border-radius: 8px 8px 0 0;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  transition: background 0.16s, color 0.16s, border-color 0.16s;
+}
+
+.wb-dv-theme .dv-tab:hover {
+  background: var(--wb-hover);
+}
+
+.wb-dv-theme .dv-tab.dv-active-tab {
+  border-color: var(--wb-line);
+  position: relative;
+}
+
+.wb-dv-theme .dv-tab.dv-active-tab::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  top: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--wb-accent) 20%, var(--wb-accent) 80%, transparent);
+  box-shadow: 0 0 10px var(--wb-accent-dim);
+  pointer-events: none;
+}
+
+.wb-dv-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 6px 0 10px;
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+  color: inherit;
+  user-select: none;
+}
+
+.wb-dv-tab-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: var(--wb-faint);
+}
+
+.wb-dv-tab[data-kind="terminal"] .wb-dv-tab-icon,
+.wb-dv-tab[data-kind="diff"] .wb-dv-tab-icon {
+  color: var(--wb-accent);
+}
+
+.wb-dv-tab-title {
+  flex: 1;
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-dv-tab-close {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--wb-faint);
+  opacity: 0;
+  transition: opacity 0.14s, color 0.14s, background 0.14s;
+}
+
+.wb-dv-theme .dv-tab:hover .wb-dv-tab-close,
+.wb-dv-theme .dv-tab.dv-active-tab .wb-dv-tab-close {
+  opacity: 0.75;
+}
+
+.wb-dv-tab-close:hover {
+  opacity: 1 !important;
+  color: #fff5ec;
+  background: rgba(224, 122, 106, 0.24);
+}
+
+.wb-dv-theme .dv-watermark {
+  width: 100%;
+  height: 100%;
+}
+
+.wb-dv-theme .dv-watermark-container {
+  background: var(--wb-panel-bg);
+}
+
+.wb-dv-theme .dv-sash {
+  background: var(--dv-sash-color);
+}
+
+.wb-dv-theme .dv-sash:hover,
+.wb-dv-theme .dv-sash.dv-sash-active {
+  background: var(--dv-active-sash-color);
+}
+
+.wb-dv-theme .dv-drop-target > .dv-drop-target-dropzone > .dv-drop-target-selection {
+  border-radius: 2px;
+}
+
+.wb-dv-theme .dv-drop-target-container .dv-drop-target-anchor {
+  border-radius: 3px;
+}
+
+.wb-dv-theme .dv-tabs-overflow-dropdown-default {
+  background-color: var(--wb-modal-bg);
+  color: var(--wb-text);
+  border: 1px solid var(--wb-line);
+  border-radius: 8px;
+}
+
+.wb-dv-theme .dv-tabs-overflow-container {
+  background-color: var(--wb-modal-bg);
+  border: 1px solid var(--wb-line);
+  border-radius: 8px;
+  box-shadow: var(--wb-shadow);
+}
+
+.wb-dv-theme .dv-tabs-overflow-container .dv-tab {
+  border-radius: 6px;
+  margin: 2px 4px;
+}
+
+.wb-dv-theme .dv-context-menu {
+  background-color: var(--wb-modal-bg);
+  border: 1px solid var(--wb-line-strong);
+  border-radius: 9px;
+  box-shadow: var(--wb-shadow);
+  padding: 4px;
+}
+
+.wb-dv-theme .dv-context-menu .dv-context-menu-item {
+  border-radius: 6px;
+  font-size: 11.5px;
+}
+
+.wb-dv-theme .dv-context-menu .dv-context-menu-item:hover {
+  background-color: var(--wb-accent-dim);
+}

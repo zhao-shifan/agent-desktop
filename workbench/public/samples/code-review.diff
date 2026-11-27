@@ -1,0 +1,51 @@
+diff --git a/src/preview/registry.ts b/src/preview/registry.ts
+index 3f2a1c0..b71d9e4 100644
+--- a/src/preview/registry.ts
++++ b/src/preview/registry.ts
+@@ -1,18 +1,27 @@
+ import type { ComponentType } from 'react';
+ 
+-export type PreviewKind = 'docx' | 'pdf' | 'image' | 'sheet';
++export type PreviewKind =
++  | 'docx'
++  | 'pptx'
++  | 'pdf'
++  | 'image'
++  | 'sheet'
++  | 'diff'
++  | 'terminal';
+ 
+ const registry: Record<string, PreviewKind> = {
+   docx: 'docx',
+   doc: 'docx',
++  pptx: 'pptx',
++  ppt: 'pptx',
+   pdf: 'pdf',
+   png: 'image',
+   jpg: 'image',
++  webp: 'image',
+   xlsx: 'sheet',
+   xls: 'sheet',
++  csv: 'sheet',
++  diff: 'diff',
++  patch: 'diff',
+ };
+ 
+-export function resolvePreview(path: string): PreviewKind {
++export function resolvePreview(path: string): PreviewKind | null {
+   const ext = path.split('.').pop()?.toLowerCase() ?? '';
+-  return registry[ext] ?? 'docx';
++  return registry[ext] ?? null;
+ }
+@@ -24,8 +33,10 @@ export function resolvePreview(path: string): PreviewKind {
+     case 'docx':
+       return import('./DocxPreview');
++    case 'pptx':
++      return import('./PptxPreview');
+     case 'pdf':
+       return import('./PdfPreview');
+     default:
+-      return import('./DocxPreview');
++      return import('./TextPreview');
+   }
+ }

@@ -1,0 +1,15 @@
+node_modules/
+dist/
+public/legacy/
+public/wallpapers/
+.dev-logs/
+*.local
+.DS_Store
+
+# 开发期调试页 / 静态探针（src 未引用，不入库）
+public/probe*.html
+public/zz-debug*.html
+public/dev-seed.html
+public/inner.html
+public/docx-probe.html
+probe-static/
