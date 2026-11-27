@@ -3164,11 +3164,12 @@ function msgPreview(m){
 }
 function renderMsgNav(){
   const nav = $("msgNav"); if(!nav) return;
-  const msgs = [...$("chatInner").querySelectorAll(".msg")];
-  if(msgs.length < 4){ nav.classList.remove("show"); nav.innerHTML=""; return; }
+  // 右侧大纲只放「我的输入」，模型输出不进入这条导航
+  const msgs = [...$("chatInner").querySelectorAll(".msg")].filter(m=>m.classList.contains("user"));
+  if(msgs.length < 2){ nav.classList.remove("show"); nav.innerHTML=""; return; }
   nav.innerHTML = msgs.map(m=>{
     const idx = m.dataset.idx;
-    const cls = m.classList.contains("user") ? "u" : "a";
+    const cls = "u";
     const t = esc(msgPreview(m));
     return `<div class="mn-item ${cls}" data-target="msg-${idx}" onclick="jumpToMsg(${idx})" title="${t}"><i></i><span>${t}</span></div>`;
   }).join("");
