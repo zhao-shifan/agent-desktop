@@ -23,6 +23,8 @@ mobile/android/
 
 # 本地调试脚本 / 截图，一律不入库
 _*
+# 但 tests/ 下的测试脚本要入库（覆盖上面的 _*）
+!tests/_*.py
 
 # 运行时数据
 agent_data/

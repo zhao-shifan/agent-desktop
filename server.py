@@ -36,12 +36,57 @@ def _json_brief(args):
     except Exception:
         return str(args)[:80]
 
+def _iter_json_spans(text):
+    """按花括号配对找出正文里的所有顶层 JSON 对象（跳过字符串内的括号/转义）。
+
+    原实现用非贪婪正则 `\\{[\\s\\S]{5,4000}?\\}`，遇到嵌套对象（如
+    {"name":"get_time","arguments":{}}）会在第一个 } 处截断 → json 解析失败 →
+    恢复层形同虚设。2026-11-27 对照测试发现，这里改成配对扫描。
+    """
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] != "{":
+            i += 1
+            continue
+        depth = 0
+        in_str = False
+        esc = False
+        j = i
+        while j < n:
+            c = text[j]
+            if in_str:
+                if esc:
+                    esc = False
+                elif c == "\\":
+                    esc = True
+                elif c == '"':
+                    in_str = False
+            else:
+                if c == '"':
+                    in_str = True
+                elif c == "{":
+                    depth += 1
+                elif c == "}":
+                    depth -= 1
+                    if depth == 0:
+                        break
+            j += 1
+        if depth == 0 and j < n:
+            yield i, j + 1
+            i = j + 1
+        else:
+            i += 1
+
+
 def _recover_tool_call(text, known_names):
     """从模型正文里恢复被漏掉的工具调用。返回 (name, arguments_dict, cleaned_text) 或 None。"""
     if not text or "{" not in text:
         return None
-    for m in _TOOL_JSON_RE.finditer(text):
-        raw = m.group(1) or m.group(2)
+    for start, end in _iter_json_spans(text):
+        raw = text[start:end]
+        if len(raw) < 5 or len(raw) > 4000:
+            continue
         try:
             d = json.loads(raw)
         except Exception:
@@ -52,11 +97,11 @@ def _recover_tool_call(text, known_names):
         if name in known_names:
             args = d.get("arguments") if isinstance(d.get("arguments"), dict) else \
                 {k: v for k, v in d.items() if k not in ("name",)}
-            cleaned = (text[:m.start()] + text[m.end():]).strip()
+            cleaned = (text[:start] + text[end:]).strip()
             return name, args, cleaned
         # 画图特例：模型只吐了 {"prompt":...,"file_prefix":...}，没带 name
         if "prompt" in d and "image_gen" in known_names:
-            cleaned = (text[:m.start()] + text[m.end():]).strip()
+            cleaned = (text[:start] + text[end:]).strip()
             return "image_gen", d, cleaned
     return None
 
@@ -999,8 +1044,18 @@ class Handler(BaseHTTPRequestHandler):
         cfg["sse"] = sse_guarded
         cfg["ping"] = ping_guarded
         cfg["_stop"] = stop
+        # 官方原生循环灰度：XIAOFAN_ENGINE=official 时走 create_agent + 官方 ToolNode
         try:
-            agent_graph.run_chat(cfg, messages)
+            import agent_engine_official
+            use_official = agent_engine_official.enabled()
+        except Exception:
+            agent_engine_official = None
+            use_official = False
+        try:
+            if use_official:
+                agent_engine_official.run_chat(cfg, messages)
+            else:
+                agent_graph.run_chat(cfg, messages)
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", errors="replace")[:600]
             hint = ""
